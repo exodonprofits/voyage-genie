@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voyage Genie</title>
+<style>
+  :root { --bg: #0f172a; --fg: #e2e8f0; --accent: #38bdf8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, sans-serif; padding: 16px; }
+  h1 { color: var(--accent); margin: 0 0 8px; }
+  p { margin: 0; opacity: .8; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+  var app = document.getElementById('app');
+  var h1 = document.createElement('h1');
+  h1.textContent = 'Voyage Genie';
+  var p = document.createElement('p');
+  p.textContent = 'Coming soon.';
+  app.appendChild(h1);
+  app.appendChild(p);
+</script>
+</body>
+</html>
