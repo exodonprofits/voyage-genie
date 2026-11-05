@@ -1,0 +1,38 @@
+# Apache config for Bluehost. Mirrors _headers (which only Cloudflare Pages reads).
+
+# --- Force HTTPS -------------------------------------------------------------
+# The X-Forwarded-Proto check prevents a redirect loop if Cloudflare's proxy
+# sits in front of Bluehost.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} off
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# --- Security headers --------------------------------------------------------
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  # No includeSubDomains: only add it once every subdomain has valid SSL.
+  Header always set Strict-Transport-Security "max-age=31536000"
+
+  # Content-Security-Policy is not enabled yet; see _headers for the starter policy.
+  # Header always set Content-Security-Policy "default-src 'self'; ..."
+
+  # HTML always revalidates so uploads show up immediately
+  <FilesMatch "\.html?$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+
+# --- Block repo/config files from being served -------------------------------
+<FilesMatch "^(\.|_headers$|README\.md$)">
+  Require all denied
+</FilesMatch>
+RedirectMatch 404 /\.git
+
+Options -Indexes
