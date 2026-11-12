@@ -35,7 +35,7 @@
 </IfModule>
 
 # --- Block repo/config files from being served -------------------------------
-<FilesMatch "^(\.|_headers$|_redirects$|README\.md$|CLAUDE\.md$|LINK-REPORT\.md$|PHASE2-PLAN\.md$)">
+<FilesMatch "^(\.|_headers$|_redirects$|README\.md$|CLAUDE\.md$|PHASE1-REPORT\.md$|PHASE2-PLAN\.md$)">
   Require all denied
 </FilesMatch>
 RedirectMatch 404 /\.git
