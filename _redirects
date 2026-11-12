@@ -1,0 +1,5 @@
+# Cloudflare Pages redirects — https://developers.cloudflare.com/pages/configuration/redirects/
+# Bluehost equivalents live in .htaccess.
+
+/signup.html  /register.html  301
+/signup       /register       301

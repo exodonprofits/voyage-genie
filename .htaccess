@@ -10,6 +10,11 @@
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 </IfModule>
 
+# --- Retired pages ------------------------------------------------------------
+<IfModule mod_alias.c>
+  Redirect 301 /signup.html /register.html
+</IfModule>
+
 # --- Security headers --------------------------------------------------------
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
@@ -30,7 +35,7 @@
 </IfModule>
 
 # --- Block repo/config files from being served -------------------------------
-<FilesMatch "^(\.|_headers$|README\.md$)">
+<FilesMatch "^(\.|_headers$|_redirects$|README\.md$|CLAUDE\.md$|LINK-REPORT\.md$|PHASE2-PLAN\.md$)">
   Require all denied
 </FilesMatch>
 RedirectMatch 404 /\.git

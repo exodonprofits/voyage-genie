@@ -451,12 +451,12 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
   })();
 
   // ── Make sure a user_preferences row exists ────────────────────
-  // signup.html creates this row, but two routes reach a working account
+  // register.html creates this row, but two routes reach a working account
   // without ever running that code:
   //   1. A new Google user who clicks "Continue with Google" here rather
   //      than on the signup page.
   //   2. An email signup made while confirmation is required — signUp()
-  //      returns no session there, so the insert on signup.html runs
+  //      returns no session there, so the insert on register.html runs
   //      unauthenticated and RLS drops it. That user's first authenticated
   //      moment is right here.
   // Create-only-if-absent, so it is safe to run on any sign-in.
