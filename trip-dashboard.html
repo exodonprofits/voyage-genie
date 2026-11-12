@@ -224,6 +224,8 @@ main { flex: 1; }
 .tool-card h3 { font-size: 0.93rem; font-weight: 600; margin-bottom: 0.3rem; }
 .tool-card p { font-size: 0.81rem; color: var(--text-muted); line-height: 1.5; }
 .tool-card:hover p { color: #2563eb; opacity: 0.75; }
+.tool-card.coming-soon { opacity: 0.5; pointer-events: none; cursor: default; position: relative; }
+.tool-card.coming-soon::after { content: 'Coming soon'; position: absolute; top: 8px; right: 10px; font-size: 0.68rem; font-weight: 600; color: var(--text-muted); background: var(--gray-light); border-radius: 999px; padding: 2px 7px; border: 1px solid var(--gray-border); }
 
 /* ── MODAL ── */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(2,62,138,0.45); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 50; }
@@ -575,13 +577,13 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
         <a class="tool-card" href="layover-guide.html"><h3>🔄 Layover Guide</h3><p>Make the most of your time between flights.</p></a>
         <a class="tool-card" href="customs-entry-guide.html"><h3>🛃 Customs &amp; Entry</h3><p>Know what to declare before you land.</p></a>
         <a class="tool-card" href="airport-transfer-planner.html"><h3>🚖 Airport Transfer</h3><p>Compare every way from airport to hotel.</p></a>
-        <a class="tool-card" href="esim-internet.html"><h3>📶 eSIM &amp; Internet</h3><p>Stay connected abroad for less.</p></a>
-        <a class="tool-card" href="atm-cash-guide.html"><h3>🏧 ATM &amp; Cash Guide</h3><p>Avoid fees and find the best way to pay.</p></a>
+        <a class="tool-card" href="esim-guide.html"><h3>📶 eSIM &amp; Internet</h3><p>Stay connected abroad for less.</p></a>
+        <div class="tool-card coming-soon" aria-disabled="true"><h3>🏧 ATM &amp; Cash Guide</h3><p>Avoid fees and find the best way to pay.</p></div>
         <a class="tool-card" href="emergency-info.html"><h3>🏥 Emergency Info</h3><p>Local emergency numbers and hospitals.</p></a>
-        <a class="tool-card" href="explore-destination.html"><h3>🧭 Explore Destination</h3><p>Things to do, eat, and see.</p></a>
+        <div class="tool-card coming-soon" aria-disabled="true"><h3>🧭 Explore Destination</h3><p>Things to do, eat, and see.</p></div>
         <a class="tool-card" href="tip-calculator.html"><h3>💵 Tip Calculator</h3><p>Local tipping norms + easy group splits.</p></a>
-        <a class="tool-card" href="parking-rental-cars.html"><h3>🚘 Parking &amp; Rental Cars</h3><p>Compare rates and find parking nearby.</p></a>
-        <a class="tool-card" href="weather-what-to-wear.html"><h3>🌤️ Weather &amp; Packing</h3><p>Forecast + what to wear for your dates.</p></a>
+        <a class="tool-card" href="parking-tips.html"><h3>🚘 Parking &amp; Rental Cars</h3><p>Compare rates and find parking nearby.</p></a>
+        <div class="tool-card coming-soon" aria-disabled="true"><h3>🌤️ Weather &amp; Packing</h3><p>Forecast + what to wear for your dates.</p></div>
       </div>
     </div>
 
