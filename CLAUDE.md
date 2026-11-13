@@ -34,4 +34,5 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 - The deploy never deletes server files it didn't upload. When removing a page, also 404 or redirect it in `.htaccess`.
 
 ## Git
-- Commit per logical change with a clear message. Don't push until the owner says so.
+- Commit per logical change with a clear message.
+- Push the working branch after every commit (owner's standing approval). Never push to or merge into `main` without asking: that deploys to the live site.
