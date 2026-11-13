@@ -13,6 +13,10 @@
 # --- Retired pages ------------------------------------------------------------
 <IfModule mod_alias.c>
   Redirect 301 /signup.html /register.html
+  Redirect 301 /packing-assistant.html /packing-checklist.html
+  Redirect 301 /packing-assistant-ai.html /packing-checklist.html
+  Redirect 301 /travel-budget-planner.html /trip-cost-tracker.html
+  Redirect 301 /dashboard.html /trip-dashboard.html
 </IfModule>
 
 # --- Security headers --------------------------------------------------------

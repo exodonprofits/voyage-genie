@@ -35,7 +35,9 @@ These class names match ad-blocker filter patterns, so the elements are likely h
 
 The `sponsor-*` ones matter most: they're on the cost-splitting UI that Phase 2 builds on. Proposed fix: rename to neutral prefixes (`book-*` for booking panels, `split-*` for the cost-splitting UI). This goes with item 5 because it touches the same files.
 
-## 3. Duplicate and stray pages (nothing deleted)
+## 3. Duplicate and stray pages
+
+Approved and done: the seven pages marked Delete below are removed. Old URLs for packing-assistant, packing-assistant-ai, travel-budget-planner and dashboard 301 to the kept page (`.htaccess` and `_redirects`).
 
 | Page | What it does | Linked from | Recommendation |
 |---|---|---|---|

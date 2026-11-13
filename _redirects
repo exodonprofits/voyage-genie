@@ -3,3 +3,11 @@
 
 /signup.html  /register.html  301
 /signup       /register       301
+/packing-assistant.html     /packing-checklist.html  301
+/packing-assistant          /packing-checklist       301
+/packing-assistant-ai.html  /packing-checklist.html  301
+/packing-assistant-ai       /packing-checklist       301
+/travel-budget-planner.html /trip-cost-tracker.html  301
+/travel-budget-planner      /trip-cost-tracker       301
+/dashboard.html             /trip-dashboard.html     301
+/dashboard                  /trip-dashboard          301
