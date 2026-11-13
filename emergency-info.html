@@ -703,6 +703,8 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
     }
     // No match — keep United States default
   }
+
+  function findCountry(name) {
     return DATA.find(x => x.c === name) || { police: '—', amb: '—', fire: '—' };
   }
 
