@@ -39,10 +39,18 @@
 </IfModule>
 
 # --- Block repo/config files from being served -------------------------------
-<FilesMatch "^(\.|_headers$|_redirects$|README\.md$|CLAUDE\.md$|PHASE1-REPORT\.md$|PHASE2-PLAN\.md$)">
+<FilesMatch "^(\.|_headers$|_redirects$|README\.md$|CLAUDE\.md$|PHASE1-REPORT\.md$|PHASE2-PLAN\.md$|DEPLOY\.md$)">
   Require all denied
 </FilesMatch>
 RedirectMatch 404 /\.git
 RedirectMatch 404 ^/workflows(/|$)
+RedirectMatch 404 ^/tools(/|$)
+
+# --- Files removed from the repo that may still sit on the server ------------
+# The deploy action never deletes files it didn't upload, so these stay
+# blocked here until someone removes them in File Manager.
+RedirectMatch 301 "^/customs-entry-guide \(1\)\.html$" /customs-entry-guide.html
+RedirectMatch 404 "^/(trade-journal-pro|add-telecom|detail|departure-location)\.html$"
+RedirectMatch 404 "^/(smart-trip-finder|Voyage - Smart Trip Finder)\.json$"
 
 Options -Indexes

@@ -1,0 +1,60 @@
+# Deploys voyagegenie.com to Bluehost over FTPS whenever main changes.
+# Setup steps: DEPLOY.md. Needs four repository secrets:
+#   BLUEHOST_FTP_SERVER, BLUEHOST_FTP_USERNAME, BLUEHOST_FTP_PASSWORD, BLUEHOST_FTP_DIR
+name: Deploy to Bluehost
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-bluehost
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Site checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax, HTML structure, CSS braces, links
+        run: python3 tools/check-site.py
+
+  deploy:
+    name: Upload to Bluehost
+    needs: check
+    # Pull requests only run the checks; uploads happen on main (or a manual run).
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload changed files over FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.BLUEHOST_FTP_SERVER }}
+          username: ${{ secrets.BLUEHOST_FTP_USERNAME }}
+          password: ${{ secrets.BLUEHOST_FTP_PASSWORD }}
+          server-dir: ${{ secrets.BLUEHOST_FTP_DIR }}
+          protocol: ftps
+          port: 21
+          # Only files this action uploaded get deleted later, so images/ and
+          # anything else that lives only on the server is left alone.
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            workflows/**
+            tools/**
+            **/*.md
+            _headers
+            _redirects

@@ -26,9 +26,12 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 - `images/` is referenced by most pages but is not in the repo yet; don't delete image references.
 
 ## Before finishing any change
-1. `node --check` on every extracted `<script>` you touched.
-2. HTML structure check and CSS brace-balance check.
-3. `python3 -m http.server`, then click through every touched page with Playwright and check for console errors.
+1. `python3 tools/check-site.py` (script syntax, HTML structure, CSS braces, missing links). Deploys are blocked if it fails.
+2. `python3 -m http.server`, then click through every touched page with Playwright and check for console errors.
+
+## Deploy
+- Pushes to `main` deploy to Bluehost over FTPS (`.github/workflows/deploy-bluehost.yml`, setup in `DEPLOY.md`). Merging to `main` means going live.
+- The deploy never deletes server files it didn't upload. When removing a page, also 404 or redirect it in `.htaccess`.
 
 ## Git
 - Commit per logical change with a clear message. Don't push until the owner says so.
