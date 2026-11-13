@@ -41,7 +41,7 @@ them, but delete them in File Manager so nothing depends on that:
 
 `trade-journal-pro.html`, `signup.html`, `customs-entry-guide (1).html`, `packing-assistant.html`,
 `packing-assistant-ai.html`, `travel-budget-planner.html`, `dashboard.html`, `add-telecom.html`,
-`detail.html`, `departure-location.html`, `smart-trip-finder.json`, `Voyage - Smart Trip Finder.json`.
+`detail.html`, `departure-location.html`, `airportparking.html`, `smart-trip-finder.json`, `Voyage - Smart Trip Finder.json`.
 
 ## What gets uploaded
 Everything in the repo except: `.git*`, `.github/`, `workflows/` (n8n exports), `tools/`, all `*.md`,

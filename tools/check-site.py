@@ -24,7 +24,6 @@ from html.parser import HTMLParser
 
 KNOWN_BROKEN = {
     'contact.html': 'file is truncated mid-script; needs the full copy from the server',
-    'airportparking.html': 'orphan page with a template-string quote bug; pending delete',
 }
 
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',

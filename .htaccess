@@ -17,6 +17,7 @@
   Redirect 301 /packing-assistant-ai.html /packing-checklist.html
   Redirect 301 /travel-budget-planner.html /trip-cost-tracker.html
   Redirect 301 /dashboard.html /trip-dashboard.html
+  Redirect 301 /airportparking.html /parking-tips.html
 </IfModule>
 
 # --- Security headers --------------------------------------------------------
