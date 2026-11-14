@@ -9,6 +9,7 @@ Source copies of the n8n Cloud workflows behind the site's webhooks
 | `smart-trip-finder.n8n-export.json` | Export from n8n (real node IDs, `active: true`, credential "OpenAi account"). |
 | `smart-trip-finder.hand-authored.json` | Hand-written version of the same flow (placeholder IDs, credential "Voyage-Genie"). |
 | `viator-prices.n8n.json` | **Draft, not yet live.** Real Viator tour prices for the planners (webhook `viator-prices`). |
+| `flight-prices.n8n.json` | **Draft, not yet live.** Recent flight fares from Travelpayouts (webhook `flight-prices`). |
 
 Keep one of the two once it's confirmed which matches what's live in n8n.
 
@@ -50,3 +51,57 @@ Show `fetchedAt` as "price as of …"; `cached: true` means it came from the 6-h
 - **Cache:** identical searches reuse the result for 6 hours, max 500 entries, so repeat visitors don't spend API calls.
 - **Sanitizing:** only `https` links on viator.com (and images on Viator/Tripadvisor CDNs) pass through; products without a title, link or price are dropped.
 - **CORS:** same allowed origins as `trip-finder`.
+
+## flight-prices: setup
+
+Draft workflow. Its logic is tested against mock Travelpayouts responses; it has not been run against the real API yet.
+
+These are **recent fares, not live quotes**: the cheapest prices other Aviasales users found in roughly the last
+48 hours. Label them that way on the site ("fares from $312, found recently") and always link out to check.
+
+1. **Get your token**: Travelpayouts → join the Aviasales program → Profile → API token. Also note your
+   **partner ID (marker)**.
+2. **Create the credential in n8n**: Credentials → New → **Header Auth**. Name: `Travelpayouts API`,
+   Header name: `X-Access-Token`, Value: your token.
+3. **Import** `flight-prices.n8n.json`, open **Travelpayouts – Recent Fares**, select the credential.
+4. **Set your marker**: open **Parse & Cache** and put your partner ID in `MARKER` at the top. It's not a
+   secret (it's in every public link), but without it bookings earn nothing.
+5. **Test, then activate.** On the first real call, check:
+   - the airport lookup works. It uses `this.helpers.httpRequest` inside the Code node; if your n8n
+     blocks that, tell me and I'll move the lookup into its own HTTP node.
+   - prices come back in the currency you asked for (the response's `currency` is what gets shown, so a
+     mismatch is labelled correctly but would look odd).
+   - booking links open the right search on aviasales.com and carry `marker=`.
+
+### Request (from the site)
+`POST https://exodonprofits.app.n8n.cloud/webhook/flight-prices`
+```json
+{ "origin": "Chicago", "destination": "Cancun", "departDate": "2027-02", "returnDate": "2027-02-20",
+  "currency": "USD", "directOnly": false, "limit": 5 }
+```
+- `origin` / `destination`: a city name ("Chicago"), an IATA code ("ORD", "CHI"), or "New York (JFK)".
+  City names are looked up once and remembered.
+- `departDate` (required) / `returnDate` (optional; leave out for one-way): `YYYY-MM` for the cheapest day
+  in that month, or `YYYY-MM-DD`.
+- `currency`: USD, EUR, GBP, CAD, AUD, MXN or JPY (default USD). `limit`: 1-10 (default 5).
+
+### Response
+```json
+{ "ok": true, "source": "travelpayouts", "priceType": "recent",
+  "note": "Cheapest fares found in the last 48 hours. Check the live price before booking.",
+  "fetchedAt": "...", "currency": "USD", "cached": true,
+  "trip": { "origin": { "code": "CHI", "name": "Chicago" }, "destination": { "code": "CUN", "name": "Cancun" },
+            "departDate": "2027-02", "returnDate": "2027-02-20", "directOnly": false },
+  "fares": [ { "price": 312, "currency": "USD", "airline": "AA", "flightNumber": "1234",
+               "departAt": "2027-02-10T07:15:00-06:00", "returnAt": "2027-02-17T13:00:00-05:00",
+               "stops": 0, "returnStops": 1, "durationMinutes": 410,
+               "url": "https://www.aviasales.com/search/...&marker=..." } ] }
+```
+`price` is the total for one adult, round trip when `returnDate` is given.
+On failure: `{ "ok": false, "error": "bad_request" | "unknown_place" | "rate_limited" | "upstream", "message": "...", "fallback": true }`
+(`bad_request` has no `fallback`: the site sent something wrong). An empty `fares` list means no recent fares
+were found for that route and dates: show the AI estimate.
+
+### Built in
+Same as viator-prices: 30 lookups per visitor per 10 minutes, a 6-hour fare cache (500 searches), and only
+`https://www.aviasales.com` booking links pass through. City-name lookups are cached (2,000 entries).

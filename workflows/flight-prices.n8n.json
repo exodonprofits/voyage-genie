@@ -1,0 +1,197 @@
+{
+  "name": "Voyage - Flight Prices (Travelpayouts)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "flight-prices",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "https://voyagegenie.com,https://www.voyagegenie.com,http://localhost:5500,http://127.0.0.1:5500"
+        }
+      },
+      "id": "d9a9d025-32f7-4ba8-b11d-2e13394d831f",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "c6a66792-96bd-4566-9f35-a980b81cb434"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate request, rate-limit per visitor, turn city names into IATA codes,\n// and serve from cache when possible.\n// Output: { response } to answer right away, or { url, ... } to call Travelpayouts.\n// Cache, codes and rate-limit counters live in workflow static data, which n8n\n// only persists for production (active) executions, not manual test runs.\n\n// ── CONFIG ───────────────────────────────────────────────────────\nconst LIMIT_PER_IP = 30;                  // fare lookups per visitor...\nconst WINDOW_MS    = 10 * 60 * 1000;      // ...per 10 minutes\nconst CACHE_MS     = 6 * 60 * 60 * 1000;  // reuse a fare result for 6 hours\nconst CACHE_MAX    = 500;                 // max cached searches kept\nconst CODE_MAX     = 2000;                // max city-name -> code entries kept\nconst CURRENCIES   = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'MXN', 'JPY'];\n// ─────────────────────────────────────────────────────────────────\n\nconst store = $getWorkflowStaticData('global');\nstore.cache = store.cache || {};\nstore.hits = store.hits || {};\nstore.codes = store.codes || {};\n\nconst req = $input.first().json || {};\nconst body = req.body || {};\nconst headers = req.headers || {};\nconst now = Date.now();\nconst reply = (response) => [{ json: { response } }];\n\n// Prune old counters and expired fare results.\nfor (const ip of Object.keys(store.hits)) {\n  store.hits[ip] = store.hits[ip].filter((t) => now - t < WINDOW_MS);\n  if (!store.hits[ip].length) delete store.hits[ip];\n}\nfor (const k of Object.keys(store.cache)) {\n  if (now - store.cache[k].at > CACHE_MS) delete store.cache[k];\n}\n\n// Rate limit by visitor IP.\nconst ip = String(\n  headers['cf-connecting-ip'] ||\n  String(headers['x-forwarded-for'] || '').split(',')[0] ||\n  'unknown'\n).trim();\nconst hits = store.hits[ip] || [];\nif (hits.length >= LIMIT_PER_IP) {\n  return reply({ ok: false, error: 'rate_limited', message: 'Too many fare lookups. Try again in a few minutes.', fallback: true });\n}\nhits.push(now);\nstore.hits[ip] = hits;\n\n// Validate input.\nconst clean = (s, max) => String(s == null ? '' : s)\n  .replace(/[\\u0000-\\u001f<>]/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, max);\nconst bad = (message) => reply({ ok: false, error: 'bad_request', message });\n\nconst originIn = clean(body.origin, 80);\nconst destIn = clean(body.destination, 80);\nif (originIn.length < 2) return bad('origin is required');\nif (destIn.length < 2) return bad('destination is required');\n\n// Dates: YYYY-MM (whole month) or YYYY-MM-DD, not in the past.\nconst today = new Date(now).toISOString().slice(0, 10);\nfunction checkDate(v, name, required) {\n  const s = clean(v, 10);\n  if (!s) return required ? { error: name + ' is required (YYYY-MM or YYYY-MM-DD)' } : { value: '' };\n  if (!/^\\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?$/.test(s)) return { error: name + ' must be YYYY-MM or YYYY-MM-DD' };\n  const cmp = s.length === 7 ? today.slice(0, 7) : today;\n  if (s < cmp) return { error: name + ' is in the past' };\n  return { value: s };\n}\nconst dep = checkDate(body.departDate, 'departDate', true);\nif (dep.error) return bad(dep.error);\nconst ret = checkDate(body.returnDate, 'returnDate', false);\nif (ret.error) return bad(ret.error);\nif (ret.value && ret.value.slice(0, dep.value.length) < dep.value.slice(0, ret.value.length)) {\n  return bad('returnDate is before departDate');\n}\n\nconst cur = String(body.currency || '').toUpperCase();\nconst currency = CURRENCIES.includes(cur) ? cur : 'USD';\nlet limit = parseInt(body.limit, 10);\nif (!(limit >= 1 && limit <= 10)) limit = 5;\nconst directOnly = body.directOnly === true || body.directOnly === 'true';\n\n// Resolve a city name (or IATA code) to an IATA code via Travelpayouts\n// autocomplete (public, no token). Results are remembered in static data.\nasync function resolve(term) {\n  if (/^[A-Za-z]{3}$/.test(term)) return { code: term.toUpperCase(), name: term.toUpperCase() };\n  const m = term.match(/\\(([A-Za-z]{3})\\)\\s*$/);          // \"New York (JFK)\"\n  if (m) return { code: m[1].toUpperCase(), name: term.replace(/\\s*\\([A-Za-z]{3}\\)\\s*$/, '') };\n  const key = term.toLowerCase();\n  if (store.codes[key]) return store.codes[key];\n  let places;\n  try {\n    places = await this.helpers.httpRequest({\n      method: 'GET',\n      url: 'https://autocomplete.travelpayouts.com/places2',\n      qs: { term, locale: 'en', 'types[]': ['city', 'airport'] },\n      json: true,\n      timeout: 8000,\n    });\n  } catch (e) {\n    return null;\n  }\n  const list = Array.isArray(places) ? places : [];\n  const hit = list.find((p) => p && p.type === 'city' && /^[A-Z]{3}$/.test(p.code)) ||\n              list.find((p) => p && /^[A-Z]{3}$/.test(p.code));\n  if (!hit) return null;\n  const found = { code: hit.code, name: String(hit.name || term).slice(0, 80) };\n  const keys = Object.keys(store.codes);\n  if (keys.length >= CODE_MAX) keys.slice(0, keys.length - CODE_MAX + 1).forEach((k) => delete store.codes[k]);\n  store.codes[key] = found;\n  return found;\n}\n\nconst origin = await resolve.call(this, originIn);\nif (!origin) return reply({ ok: false, error: 'unknown_place', message: 'Could not find an airport for ' + originIn, fallback: true });\nconst destination = await resolve.call(this, destIn);\nif (!destination) return reply({ ok: false, error: 'unknown_place', message: 'Could not find an airport for ' + destIn, fallback: true });\nif (origin.code === destination.code) return bad('origin and destination are the same');\n\nconst cacheKey = [origin.code, destination.code, dep.value, ret.value, currency, limit, directOnly].join('|');\nconst hit = store.cache[cacheKey];\nif (hit) return reply(Object.assign({}, hit.payload, { cached: true }));\n\nconst keys = Object.keys(store.cache);\nif (keys.length >= CACHE_MAX) {\n  keys.sort((a, b) => store.cache[a].at - store.cache[b].at)\n    .slice(0, keys.length - CACHE_MAX + 1)\n    .forEach((k) => delete store.cache[k]);\n}\n\nconst params = new URLSearchParams({\n  origin: origin.code,\n  destination: destination.code,\n  departure_at: dep.value,\n  one_way: ret.value ? 'false' : 'true',\n  direct: directOnly ? 'true' : 'false',\n  sorting: 'price',\n  unique: 'false',\n  currency: currency.toLowerCase(),\n  limit: String(limit),\n  page: '1',\n});\nif (ret.value) params.set('return_at', ret.value);\n\nreturn [{\n  json: {\n    cacheKey,\n    currency,\n    trip: { origin, destination, departDate: dep.value, returnDate: ret.value || null, directOnly },\n    url: 'https://api.travelpayouts.com/aviasales/v3/prices_for_dates?' + params.toString(),\n  },\n}];\n"
+      },
+      "id": "60ac65c5-b776-4916-b36b-ceeac47785e8",
+      "name": "Validate & Resolve Airports",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "8c16b7d0-e80f-46c0-b405-22300650a0b9",
+              "leftValue": "={{ $json.url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2acc2b89-df78-4391-b500-c9d854a50970",
+      "name": "Needs Travelpayouts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "c84c0f30-97e0-45b3-9835-6e81141f3a2d",
+      "name": "Travelpayouts – Recent Fares",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn Travelpayouts prices_for_dates data into the small shape the site uses.\n// These are cached fares (cheapest found by other users in roughly the last\n// 48 hours), not live quotes, so the response says priceType: 'recent'.\n\n// ── CONFIG ───────────────────────────────────────────────────────\nconst MARKER = '';   // your Travelpayouts partner ID (marker); not secret,\n                     // it appears in public links. Empty = links still work, no commission.\n// ─────────────────────────────────────────────────────────────────\n\nconst res = $input.first().json || {};\nconst prev = $('Validate & Resolve Airports').first().json;\nconst store = $getWorkflowStaticData('global');\nstore.cache = store.cache || {};\nconst reply = (response) => [{ json: { response } }];\n\n// The HTTP node runs with \"continue on error\", so failures arrive as { error }.\nif (res.error || res.success === false || !Array.isArray(res.data)) {\n  return reply({ ok: false, error: 'upstream', message: 'Recent fares are unavailable right now.', fallback: true });\n}\n\nconst num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);\nconst iso = (v) => (typeof v === 'string' && /^\\d{4}-\\d{2}-\\d{2}/.test(v) ? v : null);\nconst ddmm = (d) => d.slice(8, 10) + d.slice(5, 7);\n\n// Booking link on Aviasales. Prefer the path Travelpayouts returns; otherwise\n// build the standard /search/ORIGDDMMDESTDDMM1 link (1 = one adult).\nfunction bookingUrl(f) {\n  let url = null;\n  if (typeof f.link === 'string' && /^\\/(?!\\/)/.test(f.link)) {\n    url = 'https://www.aviasales.com' + f.link;\n  } else if (typeof f.link === 'string' && f.link) {\n    return null;   // unexpected link format: drop the fare rather than guess\n  } else if (f.departure_at) {\n    const back = f.return_at ? ddmm(f.return_at) : '';\n    url = 'https://www.aviasales.com/search/' + prev.trip.origin.code + ddmm(f.departure_at) +\n          prev.trip.destination.code + back + '1';\n  }\n  if (!url) return null;\n  try {\n    const u = new URL(url);\n    if (u.protocol !== 'https:' || u.hostname !== 'www.aviasales.com') return null;\n    if (MARKER) u.searchParams.set('marker', MARKER);\n    return u.toString();\n  } catch (e) {\n    return null;\n  }\n}\n\n// Travelpayouts says which currency the prices are in; trust that over the request.\nconst currency = String(res.currency || prev.currency).toUpperCase();\n\nconst fares = res.data.map((f) => {\n  const departAt = iso(f.departure_at);\n  return {\n    price: num(f.price),\n    currency,\n    airline: typeof f.airline === 'string' && /^[A-Z0-9]{2}$/.test(f.airline) ? f.airline : null,\n    flightNumber: f.flight_number != null ? String(f.flight_number).slice(0, 8) : null,\n    departAt,\n    returnAt: iso(f.return_at),\n    stops: num(f.transfers),\n    returnStops: num(f.return_transfers),\n    durationMinutes: num(f.duration),\n    url: departAt ? bookingUrl(Object.assign({}, f, { departure_at: departAt, return_at: iso(f.return_at) })) : null,\n  };\n}).filter((f) => f.price != null && f.departAt && f.url);\n\nconst response = {\n  ok: true,\n  source: 'travelpayouts',\n  priceType: 'recent',\n  note: 'Cheapest fares found in the last 48 hours. Check the live price before booking.',\n  fetchedAt: new Date().toISOString(),\n  currency,\n  trip: prev.trip,\n  fares,\n};\n\nif (fares.length) store.cache[prev.cacheKey] = { at: Date.now(), payload: response };\nreturn reply(response);\n"
+      },
+      "id": "083c9338-e2fd-476e-bbda-a467390b9fe5",
+      "name": "Parse & Cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "3152ff95-1010-441a-81c2-acade1516d08",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Resolve Airports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Resolve Airports": {
+      "main": [
+        [
+          {
+            "node": "Needs Travelpayouts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Travelpayouts?": {
+      "main": [
+        [
+          {
+            "node": "Travelpayouts – Recent Fares",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Travelpayouts – Recent Fares": {
+      "main": [
+        [
+          {
+            "node": "Parse & Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Cache": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
