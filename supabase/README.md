@@ -9,6 +9,7 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
 | `migrations/20261115000001_vg_core.sql` | Tables, access helpers, guards, row-level security |
 | `migrations/20261115000002_vg_rpcs.sql` | Invites, joining, self-service member updates, payment confirmation, share links |
 | `migrations/20261115000003_vg_legacy_import.sql` | Import from the old Salon Genie tables + `vg_claim_legacy()` |
+| `migrations/20261115000004_vg_trigger_grants.sql` | Trigger functions not callable through the API (advisor clean-up) |
 | `legacy/export_from_salon_genie.sql` | Read-only export to run in **Salon Genie** |
 | `legacy/rows_for_balance_check.sql` | Read-only query to run in **GenieSphere** after the import |
 | `tests/run.sh` | Applies everything to a throwaway local PostgreSQL and runs `vg_rls_test.sql` (71 checks) |
@@ -34,10 +35,18 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
 | Confirm a payment | yes | if paid to them | if paid to them | no | no |
 | Invite people | yes | no | no | no | no |
 
+## Status
+- **2026-11-15:** migrations 001-004 applied to GenieSphere (`vg_core`, `vg_rpcs`, `vg_legacy_import`,
+  `vg_trigger_grants`). Verified there: RLS on all 10 tables, function permissions as designed, and a
+  rolled-back smoke test (anon blocked, trip create + owner member + invite working, import blocked for users).
+- **Not done yet:** the data import (steps 3-5 below) and switching the site over.
+- **Known advisor notes, to fold into the next migration:** wrap `auth.uid()` as `(select auth.uid())` in policies,
+  and index the remaining foreign keys. Both are performance-only and don't matter at current size.
+
 ## Moving the data over (one time)
-Nothing has been run in either project yet. Order:
+Order:
 1. **Test locally:** `bash supabase/tests/run.sh` → must end with `ALL TESTS PASSED`.
-2. **GenieSphere → SQL editor:** run the three migration files in order.
+2. **GenieSphere:** apply the migration files in order (done for 001-004).
 3. **Salon Genie → SQL editor:** run `legacy/export_from_salon_genie.sql`; copy the `bundle` value.
 4. **GenieSphere → SQL editor:** `select public.vg_import_legacy('<bundle>'::jsonb);` and read the report
    (expected: 12 trips, 3 plans; warnings for 3 blank draft expenses and 3 paid marks on people no

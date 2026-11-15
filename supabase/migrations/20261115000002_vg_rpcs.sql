@@ -231,7 +231,7 @@ revoke all on function public.vg_hash_token(text), public.vg_new_token() from pu
 revoke all on function public.vg_create_invite(uuid, text, integer, integer), public.vg_invite_preview(text),
                        public.vg_accept_invite(text, uuid, text), public.vg_update_my_membership(uuid, text, jsonb, integer),
                        public.vg_leave_trip(uuid), public.vg_confirm_settlement(uuid),
-                       public.vg_create_share(uuid, integer), public.vg_get_shared_trip(text) from public;
+                       public.vg_create_share(uuid, integer), public.vg_get_shared_trip(text) from public, anon;
 grant execute on function public.vg_create_invite(uuid, text, integer, integer), public.vg_invite_preview(text),
                           public.vg_accept_invite(text, uuid, text), public.vg_update_my_membership(uuid, text, jsonb, integer),
                           public.vg_leave_trip(uuid), public.vg_confirm_settlement(uuid),
