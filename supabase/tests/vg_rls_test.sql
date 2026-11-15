@@ -200,6 +200,20 @@ select tst.ok((select jsonb_array_length(settings->'sponsorRules'->0->'sponsors'
 select tst.ok((public.vg_import_legacy($j${"trips":[{"legacy_id":"11111111-1111-1111-1111-111111111111","form_data":{}}]}$j$::jsonb)
                ->'trips'->0->>'status') = 'already imported', 're-import is a no-op');
 
+-- the attached owner merges into their person with "that's me"
+set role authenticated; select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000e', false);
+select id as org_m from public.vg_trip_members where trip_id = :'old_trip' and role = 'owner' \gset
+select id as jimmy_m from public.vg_trip_members where trip_id = :'old_trip' and display_name = 'Jimmy' \gset
+select tst.ok((select not in_split from public.vg_trip_members where id = :'org_m'), 'imported owner starts as an organizer outside the split');
+select tst.fails(format('select public.vg_link_me(%L, %L)', :'old_trip', gen_random_uuid()), 'link_me to a stranger rejected');
+select public.vg_link_me(:'old_trip', :'jimmy_m');
+select tst.ok((select role = 'owner' and user_id = '00000000-0000-0000-0000-00000000000e'::uuid from public.vg_trip_members where id = :'jimmy_m'),
+              'owner is now Jimmy (role and account moved)');
+select tst.ok(not exists (select 1 from public.vg_trip_members where id = :'org_m'), 'organizer row removed');
+select tst.ok(public.vg_is_trip_owner(:'old_trip'), 'still the owner after linking');
+select tst.fails(format('select public.vg_link_me(%L, %L)', :'old_trip', :'jimmy_m'), 'linking twice rejected');
+reset role;
+
 -- the waiting trip and plan are claimed at first sign-in
 insert into auth.users (id, email, email_confirmed_at) values ('00000000-0000-0000-0000-00000000000f', 'Nobody-Yet@test.dev', now());
 set role authenticated; select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000f', false);
