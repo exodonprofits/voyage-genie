@@ -102,7 +102,7 @@
     var people = members.filter(function (m) { return m.in_split !== false; }).map(function (m) {
       var payerName = m.payer_member_id ? nameOf(m.payer_member_id) : null;
       return { name: m.display_name, payer: payerName || m.display_name, size: Math.max(1, Number(m.household_size) || 1), _mid: m.id,
-               _joined: !!m.user_id || m.joined === true };
+               _joined: !!m.user_id || m.joined === true, _handles: m.pay_handles || {} };
     });
 
     var expenses = sortExpenses(rows.expenses || []).map(function (e) {
@@ -188,7 +188,12 @@
         people: people,
         expenses: expenses,
         settlementMeta: settlementMeta,
-        sponsorRules: sponsorRules
+        sponsorRules: sponsorRules,
+        // each recorded payment, for "I paid" / "Got it"
+        payments: (rows.settlements || []).map(function (s) {
+          return { id: s.id, from: nameOf(s.from_member_id), to: nameOf(s.to_member_id), cents: Number(s.amount_cents) || 0,
+                   method: s.method || '', confirmed: !!s.confirmed_at, markedBy: s.marked_by || null };
+        }).filter(function (x) { return x.from && x.to; })
       },
       snapshot: snapshot
     };
@@ -475,6 +480,44 @@
     return loadTrip(sb, tripId);
   }
 
+  // Settle up. Pay handles: what a member saves so others can pay them.
+  var HANDLE_RE = /^[A-Za-z0-9._-]{1,40}$/;
+  function cleanHandles(h) {
+    h = h || {};
+    var out = {};
+    var v = String(h.venmo || '').trim().replace(/^@/, '');
+    if (v && HANDLE_RE.test(v)) out.venmo = v;
+    var pp = String(h.paypal || '').trim().replace(/^(https?:\/\/)?(www\.)?(paypal\.me|paypal\.com\/paypalme)\//i, '').replace(/\/.*$/, '');
+    if (pp && HANDLE_RE.test(pp)) out.paypal = pp;
+    var c = String(h.cashapp || '').trim().replace(/^\$/, '');
+    if (c && /^[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(c)) out.cashapp = c;
+    var z = String(h.zelle || '').trim();
+    if (z && z.length <= 80 && /^[^<>"']+$/.test(z)) out.zelle = z;
+    return out;
+  }
+  // Links that open the payment app with the amount (and a note) filled in.
+  function payLinks(handles, cents, note) {
+    var h = cleanHandles(handles), amt = (Math.max(0, cents) / 100).toFixed(2), links = [];
+    if (h.venmo) links.push({ app: 'venmo', label: 'Venmo', url: 'https://venmo.com/' + encodeURIComponent(h.venmo) + '?txn=pay&amount=' + amt + '&note=' + encodeURIComponent(note || '') });
+    if (h.paypal) links.push({ app: 'paypal', label: 'PayPal', url: 'https://www.paypal.com/paypalme/' + encodeURIComponent(h.paypal) + '/' + amt + 'USD' });
+    if (h.cashapp) links.push({ app: 'cashapp', label: 'Cash App', url: 'https://cash.app/$' + encodeURIComponent(h.cashapp) + '/' + amt });
+    return { links: links, zelle: h.zelle || null };
+  }
+  async function savePayHandles(sb, tripId, handles) {
+    var r = await sb.rpc('vg_update_my_membership', { p_trip: tripId, p_pay_handles: cleanHandles(handles) });
+    if (r.error) throw fail('Saving payment details', r.error);
+  }
+  async function recordPayment(sb, tripId, fromId, toId, cents, method) {
+    var m = ['venmo', 'paypal', 'cashapp', 'zelle', 'cash', 'other'].indexOf(method) >= 0 ? method : null;
+    var r = await sb.from('vg_trip_settlements').insert({ trip_id: tripId, from_member_id: fromId, to_member_id: toId,
+      amount_cents: Math.round(cents), method: m });
+    if (r.error) throw fail('Recording payment', r.error);
+  }
+  async function confirmPayment(sb, settlementId) {
+    var r = await sb.rpc('vg_confirm_settlement', { p_settlement: settlementId });
+    if (r.error) throw fail('Confirming payment', r.error);
+  }
+
   // Invites: the owner makes a link; anyone signed in can preview and accept it.
   async function createInvite(sb, tripId, role, hours) {
     var r = await sb.rpc('vg_create_invite', { p_trip: tripId, p_role: role === 'viewer' ? 'viewer' : 'editor', p_hours: hours || 336 });
@@ -574,6 +617,11 @@
     saveTrip: saveTrip,
     linkMe: linkMe,
     saveTripAsMember: saveTripAsMember,
+    cleanHandles: cleanHandles,
+    payLinks: payLinks,
+    savePayHandles: savePayHandles,
+    recordPayment: recordPayment,
+    confirmPayment: confirmPayment,
     createInvite: createInvite,
     invitePreview: invitePreview,
     acceptInvite: acceptInvite,

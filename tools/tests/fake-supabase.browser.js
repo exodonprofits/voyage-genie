@@ -147,6 +147,17 @@
         db.vg_profiles = db.vg_profiles.filter(function (x) { return x.user_id !== me; });
         r.data = { trips: mineTrips.length, plans: np - db.vg_plans.length, searches: ns - db.vg_search_history.length, left_trips: 0 };
       }
+    } else if (name === 'vg_update_my_membership') {
+      var mm = db.vg_trip_members.find(function (m) { return m.trip_id === args.p_trip && m.user_id === me; });
+      if (!mm) r.error = { message: 'You\'re not on this trip' };
+      else if (args.p_pay_handles) mm.pay_handles = args.p_pay_handles;
+    } else if (name === 'vg_confirm_settlement') {
+      var st = db.vg_trip_settlements.find(function (x) { return x.id === args.p_settlement; });
+      var toM = st && db.vg_trip_members.find(function (m) { return m.id === st.to_member_id; });
+      var own = st && db.vg_trips.some(function (t) { return t.id === st.trip_id && t.owner_id === me; });
+      if (!st) r.error = { message: 'Payment not found' };
+      else if (!((toM && toM.user_id === me) || own)) r.error = { message: 'Only the person who was paid can confirm this' };
+      else if (!st.confirmed_at) { st.confirmed_at = now(); st.confirmed_by = me; }
     } else if (name === 'vg_create_invite') {
       var owns = db.vg_trips.some(function (t) { return t.id === args.p_trip && t.owner_id === me; });
       if (!owns) r.error = { message: 'Only the trip owner can invite people' };

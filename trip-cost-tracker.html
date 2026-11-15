@@ -153,7 +153,7 @@
     .menu a:hover, .plan-menu a:hover{ background:#f3f4f6; color:#4c6ef5; }
     /* Members (not the owner) add expenses; people, trip details and payments stay with the owner */
     body.vg-member-mode #panel-people :is(input,button,select),
-    body.vg-member-mode #panel-settlements :is(input,button,select),
+    body.vg-member-mode #panel-settlements :is(input,button,select):not(.gs-act),
     body.vg-member-mode #sharedPotDetails :is(input,button,select),
     body.vg-member-mode #tripName, body.vg-member-mode #tripStart, body.vg-member-mode #tripEnd,
     body.vg-member-mode #assignPayersBtn { pointer-events:none; opacity:.5; }
@@ -164,6 +164,7 @@
     .gs-panel .gs-row { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:.5rem; }
     .gs-panel label.gs-choice { display:flex; gap:.45rem; align-items:center; padding:.3rem 0; cursor:pointer; }
     .gs-joined { font-size:.82rem; color:#475569; margin-top:.5rem; }
+    .gs-settle a.vg-btn { text-decoration:none; }
     @media (max-width:860px){
       .vg-nav{flex-wrap:nowrap;}
       .vg-left{min-width:0; flex:1 1 auto;}
@@ -2848,6 +2849,7 @@ function suggestSettlements(balMap){
           ${fmtCurrency(moved)} changes hands in total${done ? ` · <span style="color:#15803d;font-weight:600">${done} already marked paid</span>` : ''}.
           <div style="color:var(--muted);margin-top:.25rem">These amounts won't line up one-to-one with Step 3 — debts are cancelled against each other first, so the same balance can be cleared with fewer transfers.</div>`;
         wrap.appendChild(head);
+        if(typeof gsSettledNote === "function") gsSettledNote(head, rows);
 
         const grid=document.createElement("div");
         grid.className="settle-grid";
@@ -2942,6 +2944,7 @@ function suggestSettlements(balMap){
           card.appendChild(controls);
           card.appendChild(metaLine);
           refreshCard();
+          if(typeof gsSettleExtras === "function") gsSettleExtras(card, r);
 
           grid.appendChild(card);
         });
@@ -3625,6 +3628,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       tripTitle = state.tripTitle || "";
       people = state.people; expenses = state.expenses;
       settlementMeta = normalizeSettlementMeta(state.settlementMeta); sponsorRules = state.sponsorRules;
+      window.gsPayments = state.payments || [];
       $("tripTitle").value = tripTitle;
       const tn = document.getElementById("tripName"); if(tn) tn.value = state.tripName || ((tripTitle||"").split(" – ")[0]||"");
       const ts = document.getElementById("tripStart"); if(ts) ts.value = state.tripStart || "";
@@ -3717,6 +3721,109 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       setLastSaved();
     }
 
+    /* ===== Settle up (GenieSphere) ===== */
+    async function gsReload(message){
+      const t = await VG_STORE.loadTrip(gs, gsTrip.snapshot.tripId);
+      if(!t) return;
+      gsTrip = t; gsApplyState(t.state); gsAfterLoad(true);
+      if(message) $("cloudStatus").textContent = message;
+    }
+    function gsMyName(){
+      const me = gsTrip && gsTrip.me;
+      return me && me.in_split !== false ? me.display_name : null;
+    }
+    // "How people pay you": your own Venmo / PayPal / Cash App / Zelle, saved once per trip.
+    function gsShowPayDetails(){
+      const old = document.getElementById("gsPayDetails"); if(old) old.remove();
+      const name = gsMyName(); if(!gs || !gsTrip || !name) return;
+      const mine = (people.find(p=>p.name === name) || {})._handles || {};
+      const field = (key, label, ph)=>{
+        const i = gsEl("input", { className:"vg-input gs-act", placeholder:ph, value:mine[key] || "", style:"max-width:200px" });
+        i.dataset.key = key;
+        return gsEl("label", { className:"gs-choice", style:"flex-direction:column;align-items:flex-start;gap:.15rem" }, [gsEl("span", { text:label, style:"font-size:.78rem;color:#475569" }), i]);
+      };
+      const save = gsEl("button", { type:"button", className:"vg-btn vg-btn-blue gs-act", text:"Save payment details" });
+      const box = gsEl("div", { id:"gsPayDetails", className:"gs-panel", style:"margin:0 0 .9rem" }, [
+        gsEl("h3", { text:"💳 How people pay you (" + name + ")" }),
+        gsEl("div", { text:"Add any you use. Friends who owe you get a button that opens the app with the amount filled in. Voyage Genie never touches the money." }),
+        gsEl("div", { className:"gs-row" }, [field("venmo","Venmo","@username"), field("paypal","PayPal.me","username"), field("cashapp","Cash App","$cashtag"), field("zelle","Zelle","email or phone")]),
+        gsEl("div", { className:"gs-row" }, [save])
+      ]);
+      save.addEventListener("click", async ()=>{
+        if(window.__gsUnsaved){ alert("Save your trip changes first (Save Trip), then your payment details."); return; }
+        const h = {}; box.querySelectorAll("input[data-key]").forEach(i=>{ h[i.dataset.key] = i.value; });
+        save.disabled = true; save.textContent = "Saving…";
+        try{ await VG_STORE.savePayHandles(gs, gsTrip.snapshot.tripId, h); await gsReload("Payment details saved ✅"); }
+        catch(e){ alert(e.message); save.disabled = false; save.textContent = "Save payment details"; }
+      });
+      $("settlements").before(box);
+    }
+    // Under each suggested payment: pay buttons, "I paid", "Got it", and who has confirmed.
+    function gsSettleExtras(card, r){
+      if(!gs || !gsTrip) return;
+      const from = people.find(p=>p.name === r.from), to = people.find(p=>p.name === r.to);
+      if(!from || !to) return;   // grouped (family) rows: use the checkbox
+      const st = settlementStatus(r);
+      const owed = st.state === "paid" ? 0 : (st.state === "partial" ? st.leftCents : rowCents(r));
+      const myName = gsMyName(), role = gsTrip.role;
+      const pays = (window.gsPayments || []).filter(x=>x.from === r.from && x.to === r.to);
+      const waiting = pays.filter(x=>!x.confirmed);
+      const box = gsEl("div", { className:"gs-settle", style:"margin-top:.5rem;display:flex;flex-direction:column;gap:.4rem" });
+      if(owed > 0){
+        const pl = VG_STORE.payLinks(to._handles, owed, ($("tripTitle").value || "Trip") + " (Voyage Genie)");
+        const btns = gsEl("div", { className:"gs-row", style:"margin:0" });
+        pl.links.forEach(l=>btns.appendChild(gsEl("a", { className:"vg-btn gs-act", href:l.url, target:"_blank", rel:"noopener", text:"Pay with " + l.label })));
+        if(pl.zelle){
+          const cp = gsEl("button", { type:"button", className:"vg-btn gs-act", text:"Copy Zelle: " + pl.zelle });
+          cp.addEventListener("click", async ()=>{ try{ await navigator.clipboard.writeText(pl.zelle); showToast("Zelle copied ✅"); }catch(e){} });
+          btns.appendChild(cp);
+        }
+        if(btns.childNodes.length) box.appendChild(btns);
+        else if(myName === r.from) box.appendChild(gsEl("div", { className:"settle-meta", text:"Ask " + r.to + " to add their Venmo, PayPal, Cash App or Zelle under “How people pay you”." }));
+        if(myName === r.from && role !== "viewer"){
+          const how = gsEl("select", { className:"settle-method text-sm gs-act" });
+          [["","Paid with…"],["venmo","Venmo"],["paypal","PayPal"],["cashapp","Cash App"],["zelle","Zelle"],["cash","Cash"],["other","Other"]]
+            .forEach(([v,t])=>how.appendChild(gsEl("option", { value:v, text:t })));
+          const paid = gsEl("button", { type:"button", className:"vg-btn vg-btn-blue gs-act", text:"I paid " + fmtCurrency(owed / 100) });
+          paid.addEventListener("click", async ()=>{
+            if(window.__gsUnsaved){ alert("Save your changes first (Save Trip)."); return; }
+            paid.disabled = true;
+            try{ await VG_STORE.recordPayment(gs, gsTrip.snapshot.tripId, from._mid, to._mid, owed, how.value); await gsReload("Payment recorded. " + r.to + " will confirm it."); }
+            catch(e){ alert(e.message); paid.disabled = false; }
+          });
+          box.appendChild(gsEl("div", { className:"gs-row", style:"margin:0" }, [how, paid]));
+        }
+      }
+      if(pays.length){
+        const total = pays.reduce((s,x)=>s + x.cents, 0), open = waiting.reduce((s,x)=>s + x.cents, 0);
+        box.appendChild(gsEl("div", { className:"settle-meta", style:"display:block",
+          text: waiting.length ? "⏳ " + fmtCurrency(open / 100) + " waiting for " + r.to + " to confirm"
+                               : "✔️ " + r.to + " confirmed " + fmtCurrency(total / 100) }));
+        if(waiting.length && (myName === r.to || role === "owner")){
+          card.style.opacity = "1";   // a paid card is dimmed, but this one still needs your "Got it" 
+          const got = gsEl("button", { type:"button", className:"vg-btn vg-btn-blue gs-act", text:"Got it ✓ (" + fmtCurrency(open / 100) + ")" });
+          got.addEventListener("click", async ()=>{
+            if(window.__gsUnsaved){ alert("Save your changes first (Save Trip)."); return; }
+            got.disabled = true;
+            try{ for(const x of waiting) await VG_STORE.confirmPayment(gs, x.id); await gsReload("Payment confirmed ✅"); }
+            catch(e){ alert(e.message); got.disabled = false; }
+          });
+          box.appendChild(gsEl("div", { className:"gs-row", style:"margin:0" }, [got]));
+        }
+      }
+      if(box.childNodes.length) card.appendChild(box);
+    }
+    // Above the list: "All settled" once every payment is made and confirmed.
+    function gsSettledNote(head, rows){
+      if(!gs || !gsTrip || !rows.length) return;
+      const allPaid = rows.every(r=>settlementStatus(r).state === "paid");
+      if(!allPaid) return;
+      const unconfirmed = (window.gsPayments || []).filter(x=>!x.confirmed).length;
+      head.prepend(gsEl("div", { style:"font-weight:700;margin-bottom:.3rem;color:" + (unconfirmed ? "#b45309" : "#15803d"),
+        text: unconfirmed ? "All paid · waiting for " + unconfirmed + " confirmation" + (unconfirmed === 1 ? "" : "s")
+                          : "🎉 All settled: every payment confirmed." }));
+    }
+
     /* ===== Invites and members (GenieSphere) ===== */
     // A member (editor) can change only the expenses they added.
     function gsRowLocked(ex){
@@ -3744,6 +3851,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
         applySharedReadOnlyUI(role ? "You're on this trip (view only)." : "Viewing this trip (read-only).");
       }
       gsShowJoined();
+      gsShowPayDetails();
       renderExpenses(); recalc();
     }
     // Who has joined with an account, and who is still just a name.
