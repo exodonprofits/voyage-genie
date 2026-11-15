@@ -33,7 +33,11 @@
     var l = []; try { l = JSON.parse(localStorage.getItem('fake-auth-log')) || []; } catch (e) {}
     l.push(entry); localStorage.setItem('fake-auth-log', JSON.stringify(l));
   }
-  function user() {
+  // window.__FAKE_USERS = { gs: id|null, salon: id|null } signs in per project (e.g. a stale
+  // Salon Genie session while signed out of GenieSphere); otherwise one login for both.
+  function user(project) {
+    var per = window.__FAKE_USERS;
+    if (per && project) { var k = project === GS ? 'gs' : 'salon'; if (per[k] !== undefined) return per[k]; }
     if (window.__FAKE_USER !== undefined) return window.__FAKE_USER;
     return localStorage.getItem('fake-signed-in') || null;
   }
@@ -58,7 +62,7 @@
     };
     function match(r) { return filters.every(function (f) { return f(r); }); }
     function visible(db, r) {
-      var me = user(); if (!me) return false;
+      var me = user(project); if (!me) return false;
       if (table === 'contact_messages') return false;
       if (project !== GS) return r.owner_id === me || r.user_id === me;
       if (table === 'vg_plans' || table === 'vg_profiles' || table === 'vg_search_history') return r.user_id === me;
@@ -74,7 +78,7 @@
         out = rows.filter(function (r) { return match(r) && visible(db, r); }).map(clone);
         if (max !== null) out = out.slice(0, max);
       } else if (op === 'insert') {
-        if (!user() && !/contact_messages$/.test(table)) throw new Error('not signed in');
+        if (!user(project) && !/contact_messages$/.test(table)) throw new Error('not signed in');
         out = (Array.isArray(payload) ? payload : [payload]).map(function (v) {
           if (conflict) {
             var same = rows.find(function (r) { return conflict.every(function (c) { return r[c] === v[c]; }); });
@@ -88,7 +92,7 @@
             if (db.vg_trip_members.some(function (m) { return m.trip_id === row.trip_id && m.display_name.toLowerCase() === row.display_name.toLowerCase(); }))
               throw new Error('duplicate key value violates unique constraint "vg_trip_members_name_uq"');
           }
-          if (table === 'vg_trip_settlements') { row.marked_at = now(); row.marked_by = user(); row.confirmed_at = null; }
+          if (table === 'vg_trip_settlements') { row.marked_at = now(); row.marked_by = user(project); row.confirmed_at = null; }
           if (table === 'vg_trips') { row.settings = row.settings || {}; row.start_date = row.start_date || null; row.end_date = row.end_date || null; }
           rows.push(row);
           if (table === 'vg_trips') {
@@ -98,11 +102,11 @@
           return clone(row);
         });
       } else if (op === 'update') {
-        out = rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); })
+        out = rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user(project)) : visible(db, r)); })
                   .map(function (r) { Object.assign(r, clone(payload)); r.updated_at = now(); return clone(r); });
       } else {
         var gone = (window.__FAKE_BLOCK_DELETE || []).indexOf(table) >= 0 ? [] :
-          rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); });
+          rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user(project)) : visible(db, r)); });
         if (table === 'vg_trip_members') {
           gone.forEach(function (m) {
             if (db.vg_trip_expenses.some(function (e) { return e.paid_by_member_id === m.id; })) throw new Error('member still paid an expense');
@@ -127,7 +131,7 @@
   }
 
   function rpc(project, name, args) {
-    var db = loadDb(project), me = user(), r = { data: null, error: null };
+    var db = loadDb(project), me = user(project), r = { data: null, error: null };
     logAuth({ rpc: name });
     if (name === 'vg_claim_legacy') r.data = { trips: 0, plans: 0 };
     else if (name === 'vg_delete_my_data') {
@@ -166,7 +170,7 @@
   }
 
   function auth(project) {
-    var who = function () { var u = user(); return u ? { id: u, email: u + '@test.dev', user_metadata: {} } : null; };
+    var who = function () { var u = user(project); return u ? { id: u, email: u + '@test.dev', user_metadata: {} } : null; };
     return {
       getUser: function () { return Promise.resolve({ data: { user: who() }, error: null }); },
       getSession: function () { return Promise.resolve({ data: { session: who() ? { user: who() } : null }, error: null }); },

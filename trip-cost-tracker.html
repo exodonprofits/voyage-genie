@@ -1081,7 +1081,9 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
 
   <!-- ===== Header logic: dropdowns + auth + MyTrips gate ===== -->
   <script>
-    const sbHeader = window.__vg_sb; // shared client created early
+    // The header shows whoever is signed in to the backend the page uses (GenieSphere by default),
+    // not a leftover Salon Genie session. getClient() is shared, so this is the same client as `gs`.
+    const sbHeader = (window.VGTripStore && window.VGTripStore.backend() === 'gs') ? window.VGTripStore.getClient() : window.__vg_sb;
 
     function toggle(el, show){ if(!el) return; el.style.display = show ? 'block' : 'none'; }
 
@@ -1270,12 +1272,12 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
 
           node.querySelector('#signOutBtn').addEventListener('click', async (e)=>{
             e.preventDefault();
-            try{ await sbHeader.auth.signOut(); } finally { location.href='login.html'; }
+            try{ await sbHeader.auth.signOut(); if(window.__vg_sb && window.__vg_sb !== sbHeader){ await window.__vg_sb.auth.signOut().catch(()=>{}); } } finally { location.href='login.html'; }
           });
 
           mobileSignOutBtn?.addEventListener('click', async (e)=>{
             e.preventDefault();
-            try{ await sbHeader.auth.signOut(); } finally { location.href='login.html'; }
+            try{ await sbHeader.auth.signOut(); if(window.__vg_sb && window.__vg_sb !== sbHeader){ await window.__vg_sb.auth.signOut().catch(()=>{}); } } finally { location.href='login.html'; }
           });
         } else {
           authSlot.appendChild(signinDOM());
@@ -3967,7 +3969,7 @@ async function loadFromCloudIfAny(){
     }
     function updateAuthPills(){}
 
-    sb.auth.onAuthStateChange(async (_event, session)=>{ currentUser=session?.user||null; updateAuthPills(); if(currentUser){ $("cloudStatus").textContent="Signed in."; } });
+    authClient().auth.onAuthStateChange(async (_event, session)=>{ currentUser=session?.user||null; updateAuthPills(); if(currentUser){ $("cloudStatus").textContent="Signed in."; } });
 
     /* ===== Misc ===== */
     function resetDemo(){

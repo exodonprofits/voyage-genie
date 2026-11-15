@@ -151,6 +151,17 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
      'old Salon Genie share link still opens, read-only');
   const ob = await balances(anon2); ok(Object.keys(ob).length === 2 && Object.values(ob).reduce((x, y) => x + y, 0) === 0 && Math.abs(ob.A) === 5000, '...with correct balances ' + JSON.stringify(ob));
 
+  // ── 5c. a leftover Salon Genie session doesn't show as signed in ──
+  const stale = await ctx.newPage();
+  stale.on('pageerror', (e) => errors.push(e.message));
+  await stale.addInitScript(() => { window.__FAKE_USERS = { gs: null, salon: 'user-oldsalon' }; });
+  await stale.goto(base + '?db=gs', { waitUntil: 'load' });
+  await stale.waitForTimeout(800);
+  const slot = await stale.evaluate(() => document.getElementById('authSlot').textContent);
+  ok(!/oldsalon/.test(slot) && /Sign in/i.test(slot), 'signed out of GenieSphere: header offers Sign in even with an old Salon Genie session');
+  ok(!/Signed in/.test(await stale.textContent('#cloudStatus')), '...and the tracker does not say "Signed in."');
+  await stale.close();
+
   // ── 6. the old backend is untouched without ?db=gs ──────────────
   const old = await newPage(OWNER);
   await old.goto(base + '?db=salon', { waitUntil: 'load' });   // ?db=salon also forgets the remembered choice
