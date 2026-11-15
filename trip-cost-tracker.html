@@ -2904,12 +2904,13 @@ function suggestSettlements(balMap){
             const st = settlementStatus(r);
             card.className="settle-card" + (st.state==="paid" ? " paid" : "");
             top.replaceChildren();
-            top.appendChild(chip("💸 " + r.from));
+            const covers = (n)=>{ const m = legend.get(n) || []; return m.length ? " (+ " + m.join(", ") + ")" : ""; };
+            top.appendChild(chip("💸 " + r.from + covers(r.from), covers(r.from) ? r.from + " pays for their group" : ""));
             const pays=document.createElement("span");
             pays.className="text-gray-500";
             pays.textContent="pays";
             top.appendChild(pays);
-            top.appendChild(chip("🧾 " + r.to));
+            top.appendChild(chip("🧾 " + r.to + covers(r.to), covers(r.to) ? r.to + " collects for their group" : ""));
             if(st.state==="paid") top.appendChild(chip("✅ Paid", "Marked as paid"));
             if(st.state==="partial") top.appendChild(chip("⚠️ Partly paid", "Paid before the balance went up"));
             paidChk.checked = st.state==="paid";
@@ -3982,8 +3983,13 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
     function gsSettleExtras(card, r){
       if(!gs || !gsTrip) return;
       const from = people.find(p=>p.name === r.from), to = people.find(p=>p.name === r.to);
-      if(!from || !to) return;   // grouped (family) rows: use the checkbox
+      if(!from || !to) return;   // rows are always between payers, so this is only a safety net
       const st = settlementStatus(r);
+      const me = gsMyName(), mine = people.find(p=>p.name === me);
+      if(mine && mine.payer && mine.payer !== me && (mine.payer === r.from || mine.payer === r.to)){
+        card.appendChild(gsEl("div", { className:"settle-meta", style:"display:block;margin-top:.4rem",
+          text: "👪 " + mine.payer + (mine.payer === r.from ? " pays this for your group, including your share." : " collects this for your group.") }));
+      }
       const owed = st.state === "paid" ? 0 : (st.state === "partial" ? st.leftCents : rowCents(r));
       const myName = gsMyName(), role = gsTrip.role;
       const pays = (window.gsPayments || []).filter(x=>x.from === r.from && x.to === r.to);

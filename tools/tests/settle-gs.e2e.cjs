@@ -121,6 +121,43 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
   await j.waitForFunction(() => /Jimmy confirmed \$50\.00/.test(document.getElementById('settlements').textContent), null, { timeout: 5000 });
   ok(true, 'Jenny sees "Jimmy confirmed $50.00"');
 
+  // ── families: Jimmy pays for Jenny; Hao paid the villa ──────────
+  const f = await newPage(OWNER);
+  await f.goto(base, { waitUntil: 'load' });
+  await f.waitForTimeout(400);
+  for (const n of ['Jimmy', 'Jenny', 'Hao']) { await f.fill('#personName', n); await f.evaluate(() => addPerson()); }
+  await f.fill('#tripName', 'Maui');
+  await f.evaluate(() => {
+    people.find((x) => x.name === 'Jenny').payer = 'Jimmy';
+    expenses.length = 0;
+    expenses.push({ date: '2027-04-01', desc: 'Villa', category: '', paidBy: 'Hao', amount: 300, included: { Jimmy: true, Jenny: true, Hao: true } });
+    renderExpenses(); recalc();
+  });
+  await f.evaluate(() => saveToCloud());
+  await status(f, 'Saved');
+  await f.selectOption('#gsLinkMe select', { label: 'Jimmy' });
+  await f.click('#gsLinkMe button:has-text("That\'s me")');
+  await f.waitForFunction(() => !document.getElementById('gsLinkMe'), null, { timeout: 5000 });
+  const fcard = f.locator('#settlements .settle-card').first();
+  ok(/💸 Jimmy \(\+ Jenny\)/.test(await fcard.textContent()) && /\$200\.00/.test(await fcard.textContent()),
+     'family: the card says "Jimmy (+ Jenny) pays Hao $200.00"');
+  ok(await fcard.locator('button:has-text("I paid $200.00")').count() === 1, '...and Jimmy, the family\'s payer, gets "I paid"');
+  await f.click('#gsInviteBtn');
+  await f.click('#gsInvitePanel button:has-text("Create invite link")');
+  await f.waitForFunction(() => /join=/.test(document.querySelector('#gsInvitePanel input').value), null, { timeout: 5000 });
+  const flink = await f.inputValue('#gsInvitePanel input');
+  const fj = await newPage(JENNY);
+  await fj.goto(flink, { waitUntil: 'load' });
+  await fj.waitForSelector('#gsJoinPanel input[name="gsJoinWho"]', { timeout: 5000 });
+  await fj.check('#gsJoinPanel label.gs-choice:has-text("Jenny") input');
+  await Promise.all([fj.waitForURL(/trip_id=/), fj.click('#gsJoinPanel button:has-text("Join trip")')]);
+  await status(fj, "You're on this trip");
+  const jcard = fj.locator('#settlements .settle-card').first();
+  ok(/Jimmy pays this for your group, including your share/.test(await jcard.textContent()), 'Jenny (covered by Jimmy) is told Jimmy pays her share');
+  ok(await jcard.locator('button:has-text("I paid")').count() === 0, '...and gets no "I paid" for it');
+  if (shots) await jcard.screenshot({ path: path.join(shots, 'settle-family.png') });
+  await f.close(); await fj.close();
+
   ok(errors.length === 0 && dialogs.length === 0, 'no JS errors or alerts: ' + JSON.stringify(errors.concat(dialogs)));
   await browser.close(); srv.close();
   console.log('ALL ' + passed + ' SETTLE-UP E2E CHECKS PASSED');
