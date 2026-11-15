@@ -38,6 +38,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The FTP account starts in public_html, which is another site's root.
+      # Refuse to upload unless the target is a named subfolder like "voyagegenie.com/".
+      - name: Check the target folder
+        env:
+          DIR: ${{ secrets.BLUEHOST_FTP_DIR }}
+        run: |
+          case "$DIR" in
+            ""|"/"|"./"|"."|/*) echo "::error::BLUEHOST_FTP_DIR must be the site's subfolder relative to the FTP home, e.g. voyagegenie.com/ (got an empty, root or absolute path). Nothing uploaded."; exit 1 ;;
+            */) echo "Target folder looks OK." ;;
+            *) echo "::error::BLUEHOST_FTP_DIR must end with /. Nothing uploaded."; exit 1 ;;
+          esac
+
       - name: Upload changed files over FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:

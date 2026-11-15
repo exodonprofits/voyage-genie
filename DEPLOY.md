@@ -24,7 +24,7 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 | `BLUEHOST_FTP_SERVER` | FTP server from step 1, e.g. `ftp.voyagegenie.com` |
 | `BLUEHOST_FTP_USERNAME` | full FTP login, e.g. `deploy@voyagegenie.com` |
 | `BLUEHOST_FTP_PASSWORD` | its password |
-| `BLUEHOST_FTP_DIR` | folder **relative to the FTP account's home**, ending in `/`. If the account's directory is already the site folder, use `./` |
+| `BLUEHOST_FTP_DIR` | voyagegenie.com's folder **relative to the FTP account's home**, ending in `/`, e.g. `voyagegenie.com/`. The `deployvoyagegenie` account starts in `public_html`, which is **Arowana's site root**, so `/`, `./` and empty are refused by the workflow. |
 
 ### 3. Before the first deploy
 - **Get `images/` into the repo** (or at least don't expect it to be uploaded). The deploy never deletes
