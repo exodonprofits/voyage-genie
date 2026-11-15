@@ -56,7 +56,8 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
   "Save to My Trips" → `vg_plans`, planner history → `vg_search_history`, account → `vg_plans`/`vg_profiles`, contact →
   `vg_contact_messages` (`tools/tests/pages-gs.e2e.cjs`). `trip-budget-settlement.html` is left on Salon Genie (to retire).
 - **2026-11-15:** migration 006 (`vg_delete_my_data`) applied to GenieSphere by the owner in the SQL editor. Verified: security definer, signed-in only (anon blocked), rolled-back call returns zero counts for a user with no data.
-- **Not done yet (cutover):** flip `DEFAULT_BACKEND`; enable Google sign-in and custom SMTP in GenieSphere; add the site to its
+- **2026-11-15: cutover.** voyagegenie.com uses GenieSphere by default. Old Salon Genie trip links resolve by `legacy_id`; old share links fall back to the Salon Genie copy, read-only. Nothing had changed in Salon Genie since the import, so no re-import was needed.
+- **Still to do after cutover (owner):** flip `DEFAULT_BACKEND`; enable Google sign-in and custom SMTP in GenieSphere; add the site to its
   Auth redirect URLs; re-import trips edited on the live site since the import.
 - **Known advisor notes, to fold into the next migration:** wrap `auth.uid()` as `(select auth.uid())` in policies,
   and index the remaining foreign keys. Both are performance-only and don't matter at current size.

@@ -124,6 +124,33 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
   ok(JSON.stringify(await balances(anon)) === JSON.stringify(before2), 'shared view shows the same balances');
   ok(await anon.evaluate(() => __vg_shared_readonly === true), 'shared view cannot save');
 
+  // ── 5b. links made before the move to GenieSphere still open ─────
+  // an old Salon Genie trip id: found by legacy_id, address rewritten to the new id
+  const OLD = '8c8409d3-4641-4d18-ac7c-b0b15f16dc42';
+  await p.evaluate((old) => {
+    const d = JSON.parse(localStorage.getItem('fake-gs-db'));
+    const t = d.vg_trips[0]; t.legacy_id = old; localStorage.setItem('fake-gs-db', JSON.stringify(d));
+  }, OLD);
+  await p.goto(base + '?db=gs&trip_id=' + OLD, { waitUntil: 'load' });
+  await p.waitForFunction(() => /Loaded/.test(document.getElementById('cloudStatus').textContent), null, { timeout: 5000 });
+  ok(!p.url().includes(OLD) && /trip_id=/.test(p.url()), 'old Salon Genie trip link opens the migrated trip and switches to its new address');
+  ok(JSON.stringify(await balances(p)) === JSON.stringify(before2), '...with the same balances');
+  // an old Salon Genie share token: falls back to the pre-move copy, read-only
+  const anon2 = await newPage(null);
+  await anon2.goto(base + '?db=gs', { waitUntil: 'load' });
+  await anon2.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('fake-salon-db') || '{"trips":[],"user_trips":[],"user_preferences":[]}');
+    d.salon_shares = { oldtoken123: { id: 'salon-1', name: 'Old shared trip', form_data: { tripTitle: 'Old shared trip',
+      people: [{ name: 'A', payer: 'A', size: 1 }, { name: 'B', payer: 'B', size: 1 }],
+      expenses: [{ date: '2026-01-01', desc: 'Hotel', paidBy: 'A', amount: 100, included: { A: true, B: true } }] } } };
+    localStorage.setItem('fake-salon-db', JSON.stringify(d));
+  });
+  await anon2.goto(base + '?db=gs&share=oldtoken123', { waitUntil: 'load' });
+  await anon2.waitForTimeout(800);
+  ok(await anon2.inputValue('#tripTitle') === 'Old shared trip' && await anon2.evaluate(() => __vg_shared_readonly === true),
+     'old Salon Genie share link still opens, read-only');
+  const ob = await balances(anon2); ok(Object.keys(ob).length === 2 && Object.values(ob).reduce((x, y) => x + y, 0) === 0 && Math.abs(ob.A) === 5000, '...with correct balances ' + JSON.stringify(ob));
+
   // ── 6. the old backend is untouched without ?db=gs ──────────────
   const old = await newPage(OWNER);
   await old.goto(base + '?db=salon', { waitUntil: 'load' });   // ?db=salon also forgets the remembered choice

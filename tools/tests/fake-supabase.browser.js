@@ -157,6 +157,9 @@
                    members: pick('vg_trip_members').map(function (m) { delete m.user_id; delete m.email; delete m.pay_handles; return m; }),
                    expenses: pick('vg_trip_expenses'), settlements: pick('vg_trip_settlements') };
       }
+    } else if (name === 'get_public_shared_trip' && project !== GS) {
+      var row = (db.salon_shares || {})[args.p_token];
+      r.data = row ? clone(row) : null;
     } else r.error = { message: 'rpc not faked: ' + name };
     saveDb(project, db);
     return Promise.resolve(r);

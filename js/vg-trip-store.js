@@ -8,15 +8,19 @@
  *   planRest(snapshot, state, ids) expenses, payments and trip fields to write
  * The maths stays in trip-cost-tracker.html.
  *
- * Backend switch: DEFAULT_BACKEND stays 'salon' (the old Salon Genie tables)
- * until the site cuts over. Add ?db=gs to a tracker URL to use GenieSphere.
+ * Backend: GenieSphere by default since the 2026-11-15 cutover. ?db=salon (or ?db=gs)
+ * on any URL pins one browser to a backend until changed; see DEFAULT_BACKEND.
  */
 (function (global) {
   'use strict';
 
   var GS_URL = 'https://nxgtefbqizvihwikqnaw.supabase.co';
   var GS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im54Z3RlZmJxaXp2aWh3aWtxbmF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM5NzM5NjIsImV4cCI6MjEwOTU0OTk2Mn0.mHDoeUzaWn0tFF_wbNw9rAZhPDtAB6VAU07hfkXgApk';
-  var DEFAULT_BACKEND = 'salon';
+  // GenieSphere since 2026-11-15. ?db=salon switches one browser back to Salon Genie (emergency
+  // rollback, remembered until ?db=gs); flipping this to 'salon' rolls back everyone.
+  var DEFAULT_BACKEND = 'gs';
+  // Flip to true once Google is enabled in GenieSphere (Auth -> Providers -> Google).
+  var GS_GOOGLE_ENABLED = false;
 
   // ?db=gs / ?db=salon picks a backend and is remembered in this browser, so a
   // tester can move between login, dashboard and tracker; ?db=salon forgets it.
@@ -24,9 +28,9 @@
   function backend() {
     try {
       var q = new URLSearchParams(global.location.search).get('db');
-      if (q === 'gs') { global.localStorage.setItem(BACKEND_KEY, 'gs'); return 'gs'; }
-      if (q === 'salon') { global.localStorage.removeItem(BACKEND_KEY); return 'salon'; }
-      if (global.localStorage.getItem(BACKEND_KEY) === 'gs') return 'gs';
+      if (q === 'gs' || q === 'salon') { global.localStorage.setItem(BACKEND_KEY, q); return q; }
+      var kept = global.localStorage.getItem(BACKEND_KEY);
+      if (kept === 'gs' || kept === 'salon') return kept;
     } catch (e) { /* not in a browser, or storage blocked */ }
     return DEFAULT_BACKEND;
   }
@@ -320,7 +324,13 @@
   async function loadTrip(sb, tripId) {
     var t = await sb.from('vg_trips').select('*').eq('id', tripId).maybeSingle();
     if (t.error) throw fail('Loading trip', t.error);
-    if (!t.data) return null;
+    if (!t.data) {
+      // Links made before the move to GenieSphere carry the old Salon Genie id.
+      t = await sb.from('vg_trips').select('*').eq('legacy_id', tripId).maybeSingle();
+      if (t.error) throw fail('Loading trip', t.error);
+      if (!t.data) return null;
+      tripId = t.data.id;
+    }
     var m = await sb.from('vg_trip_members').select('*').eq('trip_id', tripId);
     if (m.error) throw fail('Loading people', m.error);
     var e = await sb.from('vg_trip_expenses').select('*').eq('trip_id', tripId);
@@ -496,6 +506,7 @@
     backend: backend,
     getClient: getClient,
     deleteMyData: deleteMyData,
+    googleEnabled: function () { return backend() !== 'gs' || GS_GOOGLE_ENABLED; },
     table: table,
     planRow: planRow,
     planCols: planCols,

@@ -194,11 +194,15 @@ const SALON_PLAN = { id: '22222222-0000-0000-0000-000000000002', user_id: ME, tr
      && /login\.html\?next=trip-dashboard\.html$/.test(su.options.emailRedirectTo), 'GS: sign-up goes to GenieSphere with the name and a return link to login');
   await ctx.close();
 
-  // ═══ a fresh browser without ?db=gs stays on Salon Genie ═══════════
+  // ═══ GenieSphere is the default (cutover 2026-11-15); ?db=salon sticks ═══
   ctx = await newContext();
   p = await page(ctx);
   await p.goto(base + 'login.html', { waitUntil: 'load' });
-  ok(!(await p.locator('#magicLinkBtn').count()), 'default: login has no GenieSphere sign-in link (Salon Genie as today)');
+  ok(await p.locator('#magicLinkBtn').count() === 1, 'default: a fresh browser signs in through GenieSphere (sign-in link offered)');
+  ok(!(await p.locator('#googleBtn').isVisible()), 'default: Google button hidden until enabled in GenieSphere');
+  await p.goto(base + 'login.html?db=salon', { waitUntil: 'load' });
+  await p.goto(base + 'login.html', { waitUntil: 'load' });
+  ok(!(await p.locator('#magicLinkBtn').count()) && await p.locator('#googleBtn').isVisible(), '?db=salon switches this browser back to Salon Genie and is remembered');
   await ctx.close();
 
   ok(errors.length === 0, 'no JS errors: ' + JSON.stringify(errors));

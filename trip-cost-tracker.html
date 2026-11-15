@@ -3660,7 +3660,10 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
         await VG_STORE.claimLegacy(gs);            // picks up trips imported under this email, once
         const t = await VG_STORE.loadTrip(gs, id);
         if(!t){ alert("Trip not found, or you're not on it.\n\nSign in with the email the trip belongs to."); return false; }
-        gsTrip = t; currentTripId = id; tripOwnerId = null;
+        gsTrip = t; currentTripId = (t.snapshot && t.snapshot.tripId) || id; tripOwnerId = null;
+        if(currentTripId !== id){   // an old Salon Genie link: show the trip's GenieSphere address from now on
+          const u = new URL(location.href); u.searchParams.set("trip_id", currentTripId); history.replaceState(null, "", u.toString());
+        }
         gsApplyState(t.state);
         if(t.role !== "owner"){
           applySharedReadOnlyUI(t.role ? "You're on this trip (view only for now)." : "Viewing this trip (read-only).");
@@ -3855,11 +3858,15 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
         let shared = null;
         try{ shared = await VG_STORE.loadShared(gs, token); }
         catch(e){ console.error("[gs] share failed", e); alert("Couldn't open this shared trip.\n\n" + e.message); return false; }
-        if(!shared){ alert("This share link has expired or has been revoked.\n\nAsk the trip owner for a fresh link — they last for 48 hours."); return false; }
-        gsApplyState(shared.state);
-        applySharedReadOnlyUI("Viewing shared trip (read‑only). Link expires automatically.");
-        if(new URLSearchParams(location.search).get("report") === "1"){ renderReportInline(); return "report"; }
-        return true;
+        if(shared){
+          gsApplyState(shared.state);
+          applySharedReadOnlyUI("Viewing shared trip (read‑only). Link expires automatically.");
+          if(new URLSearchParams(location.search).get("report") === "1"){ renderReportInline(); return "report"; }
+          return true;
+        }
+        // Not a GenieSphere link: it may have been shared before the move, so try the
+        // old Salon Genie copy below (read-only, as before).
+        if(!sb){ alert("This share link has expired or has been revoked.\n\nAsk the trip owner for a fresh link — they last for 48 hours."); return false; }
       }
 
       const { data, error } = await sb.rpc('get_public_shared_trip', { p_token: token });

@@ -316,6 +316,20 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
         <a href="privacy.html" target="_blank">Privacy Policy</a>.
       </p>
 
+<script>
+  // Google sign-in isn't enabled in GenieSphere yet (js/vg-trip-store.js GS_GOOGLE_ENABLED).
+  (function () {
+    if (!window.VGTripStore || VGTripStore.googleEnabled()) return;
+    var b = document.getElementById('googleBtn'); if (!b) return;
+    var n = b.nextElementSibling;
+    while (n && (n.classList.contains('google-terms') || n.classList.contains('divider'))) {
+      var next = n.nextElementSibling; n.style.display = 'none';
+      if (n.classList.contains('divider')) break; n = next;
+    }
+    b.style.display = 'none';
+  })();
+</script>
+
       <div class="divider"><span>or sign up with email</span></div>
 
       <form id="signupForm" novalidate>
