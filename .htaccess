@@ -18,6 +18,8 @@
   Redirect 301 /travel-budget-planner.html /trip-cost-tracker.html
   Redirect 301 /dashboard.html /trip-dashboard.html
   Redirect 301 /airportparking.html /parking-tips.html
+  # Retired 2026-11-15 (old Salon Genie-only splitter); the query string (?trip_id, ?share) is kept
+  Redirect 301 /trip-budget-settlement.html /trip-cost-tracker.html
 </IfModule>
 
 # --- Security headers --------------------------------------------------------

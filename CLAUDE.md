@@ -16,7 +16,7 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 - Fonts: Playfair Display (headings), DM Sans (body). Content rail 1240px.
 
 ## Backend
-- Supabase: **GenieSphere** (`nxgtefbqizvihwikqnaw`). The old Salon Genie project (`pbojacnagutipfhcxltj`) still holds the pre-move copy; only `trip-budget-settlement.html` (to retire) and the `?db=salon` switch use it. Only the anon key goes in frontend code.
+- Supabase: **GenieSphere** (`nxgtefbqizvihwikqnaw`). The old Salon Genie project (`pbojacnagutipfhcxltj`) still holds the pre-move copy; only the `?db=salon` switch uses it. Only the anon key goes in frontend code.
 - Every page reaches GenieSphere only through `js/vg-trip-store.js` (load it before the supabase-js bootstrap; use `VGTripStore.table()` / `planRow()` for old table names). **The site runs on GenieSphere since 2026-11-15** (`DEFAULT_BACKEND = 'gs'`). `?db=salon` pins one browser to the old Salon Genie tables (read-only reference) until `?db=gs`. Google sign-in stays hidden until `GS_GOOGLE_ENABLED` is set after enabling Google in GenieSphere.
 - Voyage tables/functions are prefixed `vg_`. Schema changes go in `supabase/migrations/` and must pass `bash supabase/tests/run.sh` before being run in GenieSphere. Never commit exported data.
 - AI calls go through n8n webhooks: `https://exodonprofits.app.n8n.cloud/webhook/<name>`. Never call OpenAI from the browser.

@@ -1090,7 +1090,7 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
     // Auth UI
     const authSlot    = document.getElementById('authSlot');
     const mobileNavSlot = document.getElementById('mobileNavSlot');
-    const nextParam   = encodeURIComponent('trip-budget-settlement.html');
+    const nextParam   = encodeURIComponent('trip-cost-tracker.html' + location.search);  // back to this trip after sign-in
 
     function accountDOM(email){
       const name = (email||'Account').split('@')[0];

@@ -17,7 +17,7 @@ const ME = 'user-jimmy';
 const GS = 'nxgtefbqizvihwikqnaw';
 
 // Pages switched in this step (the tracker, dashboard, login and register have their own tests).
-const OWN_TESTS = ['trip-cost-tracker.html', 'trip-dashboard.html', 'login.html', 'register.html', 'trip-budget-settlement.html'];
+const OWN_TESTS = ['trip-cost-tracker.html', 'trip-dashboard.html', 'login.html', 'register.html'];
 const PAGES = fs.readdirSync(root).filter((f) => f.endsWith('.html') && !OWN_TESTS.includes(f) &&
   fs.readFileSync(path.join(root, f), 'utf8').includes('pbojacnagutipfhcxltj')).sort();
 
