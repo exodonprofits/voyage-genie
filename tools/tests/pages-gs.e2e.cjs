@@ -144,6 +144,60 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
   await p.waitForFunction(() => /updated/i.test(document.body.textContent), null, { timeout: 5000 });
   ok((await db('gs')).vg_profiles[0].full_name === 'Jimmy', 'gs: account name saved to vg_profiles');
 
+  // ── 5. "Delete my Voyage Genie data" ────────────────────────────
+  // gs: one RPC; owned trips, plans, searches, profile go; the friend's trip keeps the name; login kept
+  await p.evaluate((me) => {
+    const d = JSON.parse(localStorage.getItem('fake-gs-db'));
+    d.vg_trips.push({ id: 'mine', owner_id: me, name: 'My trip', settings: {} }, { id: 'friend', owner_id: 'user-friend', name: 'Friend trip', settings: {} });
+    d.vg_trip_members.push({ id: 'm1', trip_id: 'mine', user_id: me, display_name: 'Jimmy', role: 'owner' },
+                           { id: 'm2', trip_id: 'friend', user_id: me, display_name: 'Jimmy', email: 'j@x.dev', pay_handles: { venmo: '@j' }, role: 'editor' });
+    localStorage.setItem('fake-gs-db', JSON.stringify(d));
+  }, ME);
+  await p.goto(base + 'account.html', { waitUntil: 'load' });
+  await p.waitForFunction(() => document.getElementById('statTotal').textContent !== '—', null, { timeout: 5000 });
+  ok(/Delete My Voyage Genie Data/.test(await p.textContent('#deleteAccountBtn')), 'button says what it does: Delete My Voyage Genie Data');
+  await p.click('#deleteAccountBtn');
+  await p.waitForURL(/index\.html$/, { timeout: 5000 });
+  let g = await db('gs');
+  ok(!g.vg_plans.some((x) => x.user_id === ME) && !g.vg_search_history.some((x) => x.user_id === ME) && !g.vg_profiles.some((x) => x.user_id === ME),
+     'gs: plans, searches and profile deleted');
+  ok(!g.vg_trips.some((t) => t.id === 'mine') && g.vg_trips.some((t) => t.id === 'friend'), 'gs: own trip deleted, friend\'s trip kept');
+  const m2 = g.vg_trip_members.find((m) => m.id === 'm2');
+  ok(m2 && m2.display_name === 'Jimmy' && m2.user_id === null && m2.email === null && !Object.keys(m2.pay_handles).length,
+     'gs: on the friend\'s trip the name stays, account/email/handles removed');
+  ok(!(await p.evaluate(() => localStorage.getItem('fake-signed-in'))), 'gs: signed out afterwards');
+  ok(!(await p.evaluate(() => JSON.parse(localStorage.getItem('fake-auth-log') || '[]').some((e) => /deleteUser/.test(JSON.stringify(e))))), 'no attempt to delete the shared login');
+
+  // salon: every table emptied and re-checked
+  await p.goto(base + 'index.html?db=salon', { waitUntil: 'load' });
+  const seedSalon = () => p.evaluate((me) => {
+    localStorage.setItem('fake-signed-in', me);
+    localStorage.setItem('fake-salon-db', JSON.stringify({
+      trips: [{ id: 't1', owner_id: me, name: 'Old tracker trip', form_data: {} }, { id: 't2', owner_id: 'user-other', name: 'Not mine', form_data: {} }],
+      user_trips: [{ id: 'p1', user_id: me, trip_name: 'Bahamas', trip_data: {} }],
+      search_history: [{ id: 's1', user_id: me, destination: 'Aruba', departure: 'ORD', search_data: {} }],
+      user_preferences: [{ id: 'u1', user_id: me }], contact_messages: [] }));
+  }, ME);
+  await seedSalon();
+  await p.goto(base + 'account.html', { waitUntil: 'load' });
+  await p.waitForFunction(() => document.getElementById('statTotal').textContent !== '—', null, { timeout: 5000 });
+  await p.click('#deleteAccountBtn');
+  await p.waitForURL(/index\.html$/, { timeout: 5000 });
+  let sdb = await db('salon');
+  ok(!sdb.trips.some((t) => t.owner_id === ME) && sdb.trips.some((t) => t.id === 't2') && !sdb.user_trips.length && !sdb.search_history.length,
+     'salon: trips, plans and searches deleted; other users\' trips untouched');
+  ok(sdb.user_preferences.length === 1, 'salon: user_preferences kept (Salon Genie\'s role/business row, shared with that app)');
+
+  // salon, a delete silently blocked by the database: the page must say so and keep you signed in
+  await seedSalon();
+  await p.addInitScript(() => { window.__FAKE_BLOCK_DELETE = ['search_history']; });
+  await p.goto(base + 'account.html', { waitUntil: 'load' });
+  await p.waitForFunction(() => document.getElementById('statTotal').textContent !== '—', null, { timeout: 5000 });
+  await p.click('#deleteAccountBtn');
+  await p.waitForFunction(() => /could not be deleted \(search_history\)/.test(document.body.textContent), null, { timeout: 5000 });
+  ok(/account\.html/.test(p.url()) && await p.evaluate(() => !!localStorage.getItem('fake-signed-in')),
+     'salon: a silently blocked delete is reported (search_history) and the user stays signed in');
+
   ok(errors.length === 0, 'no JS errors: ' + JSON.stringify(errors.slice(0, 5)));
   await browser.close(); srv.close();
   console.log('ALL ' + passed + ' PAGES E2E CHECKS PASSED');

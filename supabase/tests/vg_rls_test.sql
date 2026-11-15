@@ -225,4 +225,38 @@ select set_config('request.jwt.claim.sub', :'OUTSIDER', false);
 select tst.ok(tst.n('select * from public.vg_trips') = 0, 'other users still see none of it');
 reset role;
 
+-- ── delete my Voyage Genie data (migration 006) ───────────────────
+insert into auth.users (id, email, email_confirmed_at) values ('00000000-0000-0000-0000-000000000010', 'Gone@test.dev', now());
+\set GONE '00000000-0000-0000-0000-000000000010'
+select id as owner_trip from public.vg_trips where owner_id is not null order by created_at limit 1 \gset
+insert into public.vg_trip_members (trip_id, user_id, display_name, email, pay_handles, joined_at)
+  values (:'owner_trip', :'GONE', 'Gina', 'gone@test.dev', '{"venmo":"@gina"}', now()) returning id as gina_m \gset
+insert into public.vg_trip_expenses (trip_id, description, amount, paid_by_member_id, split)
+  values (:'owner_trip', 'Gina paid dinner', 90.00, :'gina_m', jsonb_build_object(:'gina_m', true));
+insert into public.vg_plans (user_id, name, legacy_owner_email, plan_data) values (null, 'Waiting plan', 'gone@test.dev', '{}');
+set role authenticated; select set_config('request.jwt.claim.sub', :'GONE', false);
+insert into public.vg_profiles (user_id, full_name) values (:'GONE', 'Gina');
+insert into public.vg_trips (owner_id, name) values (:'GONE', 'Gina solo trip');
+insert into public.vg_plans (user_id, name, plan_data) values (:'GONE', 'Gina plan', '{"destination":"Aruba"}');
+insert into public.vg_search_history (user_id, destination, departure, search_data) values (:'GONE', 'Aruba', 'ORD', '{}');
+select tst.ok(tst.n('select * from public.vg_trips') = 2, 'before: Gina sees her own trip and the one she joined');
+select public.vg_delete_my_data() as del \gset
+select tst.ok(:'del'::jsonb = '{"trips": 1, "plans": 2, "searches": 1, "left_trips": 1}'::jsonb, 'delete reports 1 trip, 2 plans (incl. waiting import), 1 search, 1 trip left');
+select tst.ok(tst.n('select * from public.vg_trips') = 0, 'after: Gina sees no trips');
+select tst.ok(tst.n('select * from public.vg_plans') = 0 and tst.n('select * from public.vg_search_history') = 0, 'after: no plans or searches');
+select tst.ok(tst.n('select * from public.vg_profiles') = 0, 'after: profile gone');
+select tst.ok(public.vg_delete_my_data() = '{"trips": 0, "plans": 0, "searches": 0, "left_trips": 0}'::jsonb, 'running it again is harmless');
+reset role;
+select tst.ok((select user_id is null and email is null and pay_handles = '{}'::jsonb and display_name = 'Gina'
+               from public.vg_trip_members where id = :'gina_m'), 'joined trip keeps the name Gina, without her account, email or handles');
+select tst.ok(exists (select 1 from public.vg_trip_expenses where trip_id = :'owner_trip' and paid_by_member_id = :'gina_m'),
+              'the friend''s trip keeps her expense, so balances don''t change');
+select tst.ok(not exists (select 1 from public.vg_trips where name = 'Gina solo trip'), 'her own trip is deleted');
+select tst.ok(not exists (select 1 from public.vg_plans where name = 'Waiting plan'), 'imported plan waiting under her email is deleted');
+select tst.ok(exists (select 1 from auth.users where id = :'GONE'), 'the shared login is untouched');
+select tst.ok(exists (select 1 from public.vg_trips where id = :'owner_trip'), 'the owner''s trip still exists');
+set role anon; select set_config('request.jwt.claim.sub', '', false);
+select tst.fails('select public.vg_delete_my_data()', 'signed-out visitors cannot call vg_delete_my_data');
+reset role;
+
 \echo ALL TESTS PASSED

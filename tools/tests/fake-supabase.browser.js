@@ -101,7 +101,8 @@
         out = rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); })
                   .map(function (r) { Object.assign(r, clone(payload)); r.updated_at = now(); return clone(r); });
       } else {
-        var gone = rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); });
+        var gone = (window.__FAKE_BLOCK_DELETE || []).indexOf(table) >= 0 ? [] :
+          rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); });
         if (table === 'vg_trip_members') {
           gone.forEach(function (m) {
             if (db.vg_trip_expenses.some(function (e) { return e.paid_by_member_id === m.id; })) throw new Error('member still paid an expense');
@@ -129,7 +130,19 @@
     var db = loadDb(project), me = user(), r = { data: null, error: null };
     logAuth({ rpc: name });
     if (name === 'vg_claim_legacy') r.data = { trips: 0, plans: 0 };
-    else if (name === 'vg_link_me') {
+    else if (name === 'vg_delete_my_data') {
+      if (!me) r.error = { message: 'Sign in first' };
+      else {
+        var mineTrips = db.vg_trips.filter(function (t) { return t.owner_id === me; }).map(function (t) { return t.id; });
+        ['vg_trip_members', 'vg_trip_expenses', 'vg_trip_settlements'].forEach(function (t) { db[t] = db[t].filter(function (x) { return mineTrips.indexOf(x.trip_id) < 0; }); });
+        db.vg_trips = db.vg_trips.filter(function (t) { return t.owner_id !== me; });
+        db.vg_trip_members.forEach(function (m) { if (m.user_id === me) { m.user_id = null; m.email = null; m.pay_handles = {}; } });
+        var np = db.vg_plans.length; db.vg_plans = db.vg_plans.filter(function (x) { return x.user_id !== me; });
+        var ns = db.vg_search_history.length; db.vg_search_history = db.vg_search_history.filter(function (x) { return x.user_id !== me; });
+        db.vg_profiles = db.vg_profiles.filter(function (x) { return x.user_id !== me; });
+        r.data = { trips: mineTrips.length, plans: np - db.vg_plans.length, searches: ns - db.vg_search_history.length, left_trips: 0 };
+      }
+    } else if (name === 'vg_link_me') {
       var mine = db.vg_trip_members.find(function (m) { return m.trip_id === args.p_trip && m.user_id === me; });
       var target = db.vg_trip_members.find(function (m) { return m.id === args.p_member && m.trip_id === args.p_trip && !m.user_id; });
       if (!mine || mine.in_split || !target) r.error = { message: 'That person has already joined or isn\'t on this trip' };

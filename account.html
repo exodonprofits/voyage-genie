@@ -600,9 +600,9 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
         <!-- Danger zone -->
         <div class="acct-card acct-card-full danger-zone">
           <div class="acct-card-title">⚠️ Danger Zone</div>
-          <p style="font-size:0.87rem;color:var(--text-muted);margin-bottom:1rem">These actions are permanent and cannot be undone.</p>
-          <button class="danger-btn" id="exportDataBtn">📦 Export My Data</button>
-          <button class="danger-btn" id="deleteAccountBtn">🗑️ Delete Account</button>
+          <p style="font-size:0.87rem;color:var(--text-muted);margin-bottom:1rem">Deleting removes your saved plans, search history, profile and the trips you created. On trips other people created, your name stays (it is part of their records) but your account, email and payment handles are removed. Your sign-in is shared with other GenieSphere apps, so it is not deleted. This can't be undone. Details in the <a href="privacy.html#deletion">privacy policy</a>.</p>
+          <button class="danger-btn" id="exportDataBtn">📦 Export My Plans</button>
+          <button class="danger-btn" id="deleteAccountBtn">🗑️ Delete My Voyage Genie Data</button>
         </div>
 
       </div>
@@ -896,15 +896,23 @@ async function loadAccount() {
 
   // Delete account
   el('deleteAccountBtn').addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to delete your account? This cannot be undone — all your saved trips will be permanently deleted.')) return;
-    if (!confirm('This is permanent. Delete account?')) return;
+    if (!confirm('Delete all your Voyage Genie data? Your saved plans, search history, profile and the trips you created will be permanently deleted.')) return;
+    if (!confirm('This is permanent and cannot be undone. Delete now?')) return;
+    const btn = el('deleteAccountBtn');
+    btn.disabled = true; btn.textContent = '⏳ Deleting…';
     try {
-      await sb.from(VGTripStore.table('user_trips')).delete().eq('user_id', user.id);
-      await sb.auth.admin.deleteUser(user.id).catch(() => {});
+      const res = await VGTripStore.deleteMyData(sb, user.id);
+      if (!res.ok) {
+        showToast('Some data could not be deleted (' + res.left.join(', ') + '). Email support@voyagegenie.com and we will remove it.', 'error');
+        btn.disabled = false; btn.textContent = '🗑️ Delete My Voyage Genie Data';
+        return;
+      }
+      try { ['vg_search_history', 'vg_prefs', 'itineraryHtml', 'emailHtml', 'formData', 'travelFormData', 'tripContext', 'packingTrip'].forEach((k) => localStorage.removeItem(k)); } catch (e2) { /* storage blocked */ }
       await sb.auth.signOut();
       location.href = 'index.html';
     } catch(e) {
-      showToast('Please contact support to delete your account.', 'error');
+      showToast('Delete failed: ' + (e.message || e) + '. Email support@voyagegenie.com and we will remove it.', 'error');
+      btn.disabled = false; btn.textContent = '🗑️ Delete My Voyage Genie Data';
     }
   });
 }

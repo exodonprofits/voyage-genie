@@ -466,9 +466,36 @@
   function planCols() { return backend() === 'gs' ? 'id, name, plan_data, created_at' : 'id, trip_name, trip_data, created_at'; }
   function planData(row) { return row ? (row.plan_data || row.trip_data || null) : null; }
 
+  // "Delete my Voyage Genie data" (account page). The sign-in is shared with other
+  // apps, so only Voyage Genie's own data goes; the login stays.
+  // GenieSphere: one transaction in vg_delete_my_data() (migration 006).
+  // Salon Genie: table by table, then re-read each table, because a delete that row
+  // security blocks returns no error. Resolves { ok, left: [table names still holding data] }.
+  // user_preferences is NOT here: in Salon Genie it holds the user's Salon Genie role and
+  // business, shared with that app. Deleting it would break their Salon Genie account.
+  var SALON_MINE = [['user_trips', 'user_id'], ['search_history', 'user_id'], ['trips', 'owner_id']];
+  async function deleteMyData(sb, userId) {
+    if (backend() === 'gs') {
+      var r = await sb.rpc('vg_delete_my_data');
+      if (r.error) throw fail('Deleting your data', r.error);
+      return { ok: true, left: [], counts: r.data };
+    }
+    var left = [];
+    for (var i = 0; i < SALON_MINE.length; i++) {
+      var t = SALON_MINE[i][0], col = SALON_MINE[i][1];
+      var del = await sb.from(t).delete().eq(col, userId);
+      if (del.error && !/does not exist|schema cache/i.test(del.error.message || '')) { left.push(t); continue; }
+      var chk = await sb.from(t).select(col).eq(col, userId);
+      if (chk.error && /does not exist|schema cache/i.test(chk.error.message || '')) continue;
+      if (chk.error || (chk.data && chk.data.length)) left.push(t);
+    }
+    return { ok: left.length === 0, left: left };
+  }
+
   global.VGTripStore = {
     backend: backend,
     getClient: getClient,
+    deleteMyData: deleteMyData,
     table: table,
     planRow: planRow,
     planCols: planCols,
