@@ -964,7 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <!-- Supabase bootstrap for Save to My Trips -->
 <script src="js/vg-trip-store.js"></script>
 <script type="module">
-  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
   if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if (!window.supabase) {
     window.supabase = createClient(

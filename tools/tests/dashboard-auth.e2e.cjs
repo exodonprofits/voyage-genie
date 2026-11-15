@@ -51,8 +51,8 @@ const SALON_PLAN = { id: '22222222-0000-0000-0000-000000000002', user_id: ME, tr
   async function newContext() {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await ctx.route(/^https?:\/\/(?!localhost)/, (r) => r.abort());
-    await ctx.route(/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js\/\+esm/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE_ESM }));
-    await ctx.route(/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE }));
+    await ctx.route(/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js(@[\d.]+)?\/\+esm/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE_ESM }));
+    await ctx.route(/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@[\d.]+$/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE }));
     return ctx;
   }
   async function page(ctx) {

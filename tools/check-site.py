@@ -72,6 +72,12 @@ def check_page(path, tmpdir):
     problems += [f'<{t}> on line {l} never closed' for t, l in checker.stack
                  if t not in OPTIONAL_CLOSE]
 
+    # CDN packages must name an exact version: an unpinned URL silently picks up new releases on the live site
+    for m in re.finditer(r'(?:cdn\.jsdelivr\.net/npm|unpkg\.com)/((?:@[\w.-]+/)?[\w.-]+)(@[^/"\'\s)]*)?', src):
+        if not m.group(2) or not re.fullmatch(r'@\d+\.\d+\.\d+', m.group(2)):
+            line = src.count('\n', 0, m.start()) + 1
+            problems.append(f'line {line}: {m.group(1)} from a CDN without an exact version (use {m.group(1)}@x.y.z)')
+
     for i, m in enumerate(re.finditer(r'<script([^>]*)>(.*?)</script>', src, re.S)):
         attrs, body = m.group(1), m.group(2)
         if 'src=' in attrs or not body.strip():

@@ -188,7 +188,7 @@ footer{background:linear-gradient(105deg,#023e8a 0%,#0077b6 100%);color:rgba(255
 <!-- Supabase -->
 <script src="js/vg-trip-store.js"></script>
 <script type="module">
-  import{createClient}from'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  import{createClient}from'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
   if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if(!window.supabase)window.supabase=createClient('https://pbojacnagutipfhcxltj.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBib2phY25hZ3V0aXBmaGN4bHRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMDkwODAsImV4cCI6MjA2MzU4NTA4MH0.ZLCcAzTYljoZycpBGwMtthP5VyAJ4schuIvt4HibGc0');
 </script>

@@ -388,7 +388,7 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 <script src="js/vg-trip-store.js"></script>
 <!-- Supabase bootstrap -->
 <script type="module">
-  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm';
   if (window.VGTripStore && window.VGTripStore.backend() === 'gs') {
     window.supabase = window.VGTripStore.getClient(createClient);
   }
