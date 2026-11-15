@@ -59,3 +59,6 @@ jobs:
             **/*.md
             _headers
             _redirects
+            # truncated in the repo; the full page lives only on the server.
+            # Remove this line once the complete contact.html is committed.
+            contact.html
