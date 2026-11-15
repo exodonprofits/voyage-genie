@@ -16,7 +16,8 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 - Fonts: Playfair Display (headings), DM Sans (body). Content rail 1240px.
 
 ## Backend
-- Supabase project `pbojacnagutipfhcxltj`. Only the anon key goes in frontend code.
+- Supabase: moving from the Salon Genie project (`pbojacnagutipfhcxltj`, current pages) to **GenieSphere** (`nxgtefbqizvihwikqnaw`, all new work). Only the anon key goes in frontend code.
+- Voyage tables/functions are prefixed `vg_`. Schema changes go in `supabase/migrations/` and must pass `bash supabase/tests/run.sh` before being run in GenieSphere. Never commit exported data.
 - AI calls go through n8n webhooks: `https://exodonprofits.app.n8n.cloud/webhook/<name>`. Never call OpenAI from the browser.
 - n8n workflow exports live in `/workflows`, which must never be served publicly.
 - Partner/affiliate IDs live only in `js/partners.js`. Don't hardcode IDs in pages.

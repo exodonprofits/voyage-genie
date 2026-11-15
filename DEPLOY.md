@@ -44,7 +44,7 @@ them, but delete them in File Manager so nothing depends on that:
 `detail.html`, `departure-location.html`, `airportparking.html`, `smart-trip-finder.json`, `Voyage - Smart Trip Finder.json`.
 
 ## What gets uploaded
-Everything in the repo except: `.git*`, `.github/`, `workflows/` (n8n exports), `tools/`, all `*.md`,
+Everything in the repo except: `.git*`, `.github/`, `workflows/` (n8n exports), `tools/`, `supabase/`, all `*.md`,
 `_headers` and `_redirects` (Cloudflare-only). `.htaccess` **is** uploaded; it carries the HTTPS redirect,
 security headers, redirects and file blocks.
 

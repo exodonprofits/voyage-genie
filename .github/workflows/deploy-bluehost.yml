@@ -55,6 +55,7 @@ jobs:
             .github/**
             workflows/**
             tools/**
+            supabase/**
             **/*.md
             _headers
             _redirects

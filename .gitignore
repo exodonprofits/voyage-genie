@@ -32,3 +32,8 @@ Thumbs.db
 dist/
 tmp/
 *.log
+
+# Supabase exports contain personal data
+supabase/legacy/*.json
+supabase/**/bundle*.json
+supabase/**/rows*.json

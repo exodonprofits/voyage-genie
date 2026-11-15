@@ -46,6 +46,7 @@
 RedirectMatch 404 /\.git
 RedirectMatch 404 ^/workflows(/|$)
 RedirectMatch 404 ^/tools(/|$)
+RedirectMatch 404 ^/supabase(/|$)
 
 # --- Files removed from the repo that may still sit on the server ------------
 # The deploy action never deletes files it didn't upload, so these stay
