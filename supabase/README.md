@@ -39,7 +39,14 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
 - **2026-11-15:** migrations 001-004 applied to GenieSphere (`vg_core`, `vg_rpcs`, `vg_legacy_import`,
   `vg_trigger_grants`). Verified there: RLS on all 10 tables, function permissions as designed, and a
   rolled-back smoke test (anon blocked, trip create + owner member + invite working, import blocked for users).
-- **Not done yet:** the data import (steps 3-5 below) and switching the site over.
+- **2026-11-15:** data imported into GenieSphere: 12 trips (8 attached to their owner's account, 4 waiting
+  for their owners' first sign-in), 3 plans, 87 members, 51 expenses ($50,475.97), 6 payments ($1,940.06).
+  `balance_match.cjs` on GenieSphere's rows: all 12 trips match to the cent (79 people). Plan JSON verified by md5.
+  Unpaid settlement records were left out of the transfer (the import ignores them anyway).
+- **Follow-up for step 2:** on the 8 attached trips the owner was added as a separate organizer
+  (`in_split = false`, named from the email) because no `vg_profiles` name existed yet. Step 2 needs a
+  "that's me" action so the owner can merge into their person in the split (e.g. "Jimmy").
+- **Not done yet:** switching the site over (Phase 2 step 2).
 - **Known advisor notes, to fold into the next migration:** wrap `auth.uid()` as `(select auth.uid())` in policies,
   and index the remaining foreign keys. Both are performance-only and don't matter at current size.
 
