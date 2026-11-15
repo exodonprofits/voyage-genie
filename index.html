@@ -260,9 +260,13 @@ section { padding: 80px 0; }
 .spot-note { margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.2); font-size: 0.88rem; opacity: 0.88; line-height: 1.5; }
 
 /* ask genie band */
-.ask-bg { background: linear-gradient(135deg, #023e8a 0%, #0077b6 60%, #00b4d8 100%); color: #fff; }
-.ask-bg .section-title { color: #fff; }
-.ask-bg .section-subtitle { color: rgba(255,255,255,0.8); margin-bottom: 28px; }
+.ask-panel {
+  margin-top: 40px; border-radius: var(--radius-lg); padding: 44px 28px; color: #fff; text-align: center;
+  background: linear-gradient(135deg, #023e8a 0%, #0077b6 60%, #00b4d8 100%); box-shadow: var(--shadow-hover);
+}
+@media (max-width: 560px) { .ask-panel { padding: 32px 18px; } }
+.ask-title { font-family: 'Playfair Display', serif; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 700; margin-bottom: 10px; }
+.ask-sub { color: rgba(255,255,255,0.85); font-size: 1.02rem; line-height: 1.6; max-width: 620px; margin: 0 auto 24px; }
 .ask-form { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; }
 @media (max-width: 560px) { .ask-form { flex-direction: column; } }
 .ask-input {
@@ -466,6 +470,25 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
         </div>
       </a>
     </div>
+
+    <!-- Not sure where? (part of step 1) -->
+    <div class="ask-panel" id="ask">
+      <h3 class="ask-title">Not sure where to go yet?</h3>
+      <p class="ask-sub">Tell the Smart Trip Finder when you can travel, your budget and your style. It suggests best-value destinations, each with a one-tap live price search.</p>
+      <div class="finder-cta">
+        <a class="btn btn-coral" href="smart-trip-finder.html">🧭 Find my best-value trip →</a>
+      </div>
+      <p class="ask-or">or ask Genie anything</p>
+      <form class="ask-form" id="askGenieForm" autocomplete="off">
+        <input class="ask-input" id="askGenieInput" type="text" placeholder="e.g. Warm beach trip in March for 6 under $1,500 each" aria-label="Ask Genie"/>
+        <button class="btn btn-ghost" id="askGenieButton" type="submit">✨ Ask Genie</button>
+      </form>
+      <div class="ask-chips" id="askChips">
+        <button class="ask-chip" type="button">Best Caribbean islands for families</button>
+        <button class="ask-chip" type="button">Alaska cruise in June: what to know</button>
+        <button class="ask-chip" type="button">Long weekend in Mexico City</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -497,27 +520,6 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
       <div class="bal"><span class="bal-name">Mai</span><span class="bal-track"><span class="bal-fill minus" style="width:15%;"></span></span><span class="bal-amt">−$582</span></div>
       <div class="bal"><span class="bal-name">Tom</span><span class="bal-track"><span class="bal-fill minus" style="width:15%;"></span></span><span class="bal-amt">−$582</span></div>
       <p class="spot-note">Six people, three payers, $3,492. Without the tracker that's a group chat argument. With it, it's five payments.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ===== ASK GENIE ===== -->
-<section class="ask-bg" id="ask">
-  <div class="rail">
-    <h2 class="section-title">Not sure where to go yet?</h2>
-    <p class="section-subtitle">Tell the Smart Trip Finder when you can travel, your budget and your style. It suggests best-value destinations, each with a one-tap live price search.</p>
-    <div class="finder-cta">
-      <a class="btn btn-coral" href="smart-trip-finder.html">🧭 Find my best-value trip →</a>
-    </div>
-    <p class="ask-or">or ask Genie anything</p>
-    <form class="ask-form" id="askGenieForm" autocomplete="off">
-      <input class="ask-input" id="askGenieInput" type="text" placeholder="e.g. Warm beach trip in March for 6 under $1,500 each" aria-label="Ask Genie"/>
-      <button class="btn btn-ghost" id="askGenieButton" type="submit">✨ Ask Genie</button>
-    </form>
-    <div class="ask-chips" id="askChips">
-      <button class="ask-chip" type="button">Best Caribbean islands for families</button>
-      <button class="ask-chip" type="button">Alaska cruise in June: what to know</button>
-      <button class="ask-chip" type="button">Long weekend in Mexico City</button>
     </div>
   </div>
 </section>
