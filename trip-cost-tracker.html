@@ -151,6 +151,30 @@
     }
     .menu .menu-divider{ height:1px; background:#e5e7eb; margin:6px 4px; border-radius:7px; }
     .menu a:hover, .plan-menu a:hover{ background:#f3f4f6; color:#4c6ef5; }
+    /* Tailwind's preflight sets this too; keep it here so phones don't overflow if that CDN is slow */
+    *, *::before, *::after { box-sizing:border-box; }
+    /* Quick add sheet */
+    .qa-fab { display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:18px; z-index:900; border:none; border-radius:999px;
+      background:#e76f51; color:#fff; font:600 1rem 'DM Sans',sans-serif; padding:.85rem 1.4rem; box-shadow:0 8px 24px rgba(0,0,0,.25); }
+    @media (max-width:760px){ .qa-fab { display:block; } body { padding-bottom:84px; } #vgToast { bottom:86px !important; } }
+    .qa-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; display:flex; align-items:flex-end; justify-content:center; }
+    .qa-sheet { background:#fff; width:100%; max-width:520px; border-radius:18px 18px 0 0; padding:.6rem 1.1rem 1.2rem; max-height:92vh; overflow:auto;
+      display:flex; flex-direction:column; gap:.55rem; box-shadow:0 -8px 30px rgba(0,0,0,.2); }
+    @media (min-width:761px){ .qa-overlay { align-items:center; } .qa-sheet { border-radius:18px; } }
+    .qa-grip { width:44px; height:5px; border-radius:3px; background:#cbd5e1; margin:0 auto .3rem; }
+    .qa-title { font-weight:700; font-size:1.1rem; }
+    .qa-label { font-size:.8rem; color:#475569; margin-bottom:-.3rem; }
+    .qa-amount { font-size:2rem; font-weight:700; padding:.4rem .6rem; border:1px solid #cbd5e1; border-radius:10px; width:100%; }
+    .qa-input { font-size:16px; padding:.6rem .7rem; border:1px solid #cbd5e1; border-radius:10px; width:100%; background:#fff; }
+    .qa-row { display:flex; gap:.5rem; } .qa-row > * { flex:1; min-width:0; }
+    .qa-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
+    .qa-chip { border:1px solid #cbd5e1; background:#fff; border-radius:999px; padding:.45rem .8rem; font-size:.92rem; }
+    .qa-chip.on { background:#0077b6; border-color:#0077b6; color:#fff; }
+    .qa-err { color:#b91c1c; font-size:.85rem; min-height:1em; }
+    .qa-actions { display:flex; gap:.5rem; }
+    .qa-cancel { flex:1; border:1px solid #cbd5e1; background:#fff; border-radius:12px; padding:.8rem; font-size:1rem; }
+    .qa-save { flex:2; border:none; background:#0077b6; color:#fff; border-radius:12px; padding:.8rem; font-size:1rem; font-weight:700; }
+    .qa-save:disabled { opacity:.6; }
     /* Members (not the owner) add expenses; people, trip details and payments stay with the owner */
     body.vg-member-mode #panel-people :is(input,button,select),
     body.vg-member-mode #panel-settlements :is(input,button,select):not(.gs-act),
@@ -772,7 +796,10 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
           <div class="vg-title">🧾 Step 2 — Log Expenses</div>
           <p class="vg-sub mt-1">One row per expense. <strong>Who paid?</strong> is who handed over the money; <strong>Who splits this?</strong> is who it was for. Those two are usually different — that's what lets the tracker work out who owes whom.</p>
         </div>
-        <button class="vg-btn vg-btn-blue" onclick="addExpenseRow()">➕ Add Expense</button>
+        <div class="flex gap-2 flex-wrap">
+          <button class="vg-btn vg-btn-blue" type="button" onclick="openQuickAdd()">⚡ Quick add</button>
+          <button class="vg-btn" onclick="addExpenseRow()">➕ Add row</button>
+        </div>
       </div>
 
       <div id="healthCheck"></div>
@@ -3721,6 +3748,114 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       setLastSaved();
     }
 
+    /* ===== Quick add (phone-friendly "add expense") ===== */
+    // A bottom sheet: amount, what, who paid (you by default), who splits (everyone), date (today).
+    // On a cloud trip it saves right away; otherwise it just adds the row.
+    function qaEl(tag, props, kids){
+      const n = document.createElement(tag);
+      Object.keys(props || {}).forEach(k=>{ if(k === "text") n.textContent = props[k]; else if(k === "style") n.style.cssText = props[k]; else n[k] = props[k]; });
+      (kids || []).forEach(c=>{ if(c) n.appendChild(c); });
+      return n;
+    }
+    function qaCanAdd(){
+      if(__vg_shared_readonly) return false;
+      if(typeof gs !== "undefined" && gs && typeof gsTrip !== "undefined" && gsTrip && gsTrip.role === "viewer") return false;
+      return true;
+    }
+    function qaToday(){ const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+    function openQuickAdd(){
+      if(!qaCanAdd()){ alert("You can view this trip but not add expenses."); return; }
+      const list = names();
+      if(!list.length){ alert("Add the people on this trip first (Step 1)."); return; }
+      closeQuickAdd();
+      const me = (typeof gsMyName === "function" && typeof gs !== "undefined" && gs && typeof gsTrip !== "undefined" && gsTrip) ? gsMyName() : null;
+
+      const amount = qaEl("input", { type:"number", inputMode:"decimal", step:"0.01", placeholder:"0.00", className:"qa-amount", id:"qaAmount" });
+      const desc = qaEl("input", { type:"text", placeholder:"What was it? (e.g. Dinner at Luigi's)", className:"qa-input", id:"qaDesc", maxLength:300 });
+      const payer = qaEl("select", { className:"qa-input", id:"qaPaidBy" });
+      list.forEach(n=>payer.appendChild(qaEl("option", { value:n, text:n })));
+      payer.value = (me && list.includes(me)) ? me : list[0];
+      const date = qaEl("input", { type:"date", className:"qa-input", id:"qaDate", value:qaToday() });
+      const cat = qaEl("select", { className:"qa-input", id:"qaCat" });
+      ['','🍽️ Food','🚗 Transport','🏨 Accommodation','🎟️ Activities','🛒 Shopping','💊 Health','📱 Other']
+        .forEach(c=>cat.appendChild(qaEl("option", { value:c, text:c || "Category (optional)" })));
+
+      // who splits: everyone on by default; tap to toggle
+      const chosen = new Set(list);
+      const chips = qaEl("div", { className:"qa-chips", id:"qaSplit" });
+      const allBtn = qaEl("button", { type:"button", className:"qa-chip qa-all" });
+      const drawChips = ()=>{
+        chips.querySelectorAll(".qa-chip").forEach(c=>{
+          const on = c === allBtn ? chosen.size === list.length : chosen.has(c.dataset.name);
+          c.classList.toggle("on", on); c.setAttribute("aria-pressed", String(on));
+        });
+        allBtn.textContent = chosen.size === list.length ? "✓ Everyone" : "Everyone";
+      };
+      allBtn.addEventListener("click", ()=>{ if(chosen.size === list.length) chosen.clear(); else list.forEach(n=>chosen.add(n)); drawChips(); });
+      chips.appendChild(allBtn);
+      list.forEach(n=>{
+        const c = qaEl("button", { type:"button", className:"qa-chip", text:n });
+        c.dataset.name = n;
+        c.addEventListener("click", ()=>{ if(chosen.has(n)) chosen.delete(n); else chosen.add(n); drawChips(); });
+        chips.appendChild(c);
+      });
+      drawChips();
+
+      const err = qaEl("div", { className:"qa-err", id:"qaErr" });
+      amount.addEventListener("input", ()=>{ err.textContent = ""; });
+      chips.addEventListener("click", ()=>{ err.textContent = ""; });
+      const save = qaEl("button", { type:"submit", className:"qa-save", id:"qaSave", text:"Add expense" });
+      const cancel = qaEl("button", { type:"button", className:"qa-cancel", text:"Cancel" });
+      cancel.addEventListener("click", closeQuickAdd);
+
+      const form = qaEl("form", { className:"qa-sheet", id:"qaSheet" }, [
+        qaEl("div", { className:"qa-grip" }),
+        qaEl("div", { className:"qa-title", text:"Add an expense" }),
+        qaEl("label", { className:"qa-label", text:"Amount ($)" }), amount,
+        desc,
+        qaEl("label", { className:"qa-label", text:"Who paid?" }), payer,
+        qaEl("label", { className:"qa-label", text:"Split between" }), chips,
+        qaEl("div", { className:"qa-row" }, [date, cat]),
+        err,
+        qaEl("div", { className:"qa-actions" }, [cancel, save])
+      ]);
+      form.addEventListener("submit", async (e)=>{
+        e.preventDefault();
+        const amt = Math.round((parseFloat(amount.value) || 0) * 100) / 100;
+        if(!amt){ err.textContent = "Enter an amount."; amount.focus(); return; }
+        if(!chosen.size){ err.textContent = "Pick at least one person to split with."; return; }
+        const included = {};
+        list.forEach(n=>{ included[n] = chosen.has(n); });
+        // drop untouched blank rows (a new trip starts with one) so the new expense isn't below an empty line
+        for(let i = expenses.length - 1; i >= 0; i--){ const x = expenses[i]; if(!x._id && !Number(x.amount) && !String(x.desc || "").trim()) expenses.splice(i, 1); }
+        expenses.push({ date: date.value || "", desc: desc.value.trim(), category: cat.value, paidBy: payer.value, amount: amt, included });
+        renderExpenses(); recalc(); dirty();
+        const cloud = typeof gs !== "undefined" && gs && typeof gsTrip !== "undefined" && gsTrip;
+        if(cloud){
+          save.disabled = true; save.textContent = "Saving…";
+          await saveToCloud();
+        } else {
+          showToast("Expense added ✅");
+        }
+        closeQuickAdd();
+      });
+
+      const overlay = qaEl("div", { className:"qa-overlay", id:"qaOverlay" }, [form]);
+      overlay.addEventListener("click", (e)=>{ if(e.target === overlay) closeQuickAdd(); });
+      document.body.appendChild(overlay);
+      document.addEventListener("keydown", qaEsc);
+      setTimeout(()=>amount.focus(), 50);
+    }
+    function qaEsc(e){ if(e.key === "Escape") closeQuickAdd(); }
+    function closeQuickAdd(){
+      const o = document.getElementById("qaOverlay"); if(o) o.remove();
+      document.removeEventListener("keydown", qaEsc);
+    }
+    window.openQuickAdd = openQuickAdd;
+    // the phone button shows only where adding is allowed
+    function qaSyncFab(){ const f = document.getElementById("qaFab"); if(f) f.style.display = qaCanAdd() ? "" : "none"; }
+    setInterval(qaSyncFab, 1000);
+
     /* ===== Settle up (GenieSphere) ===== */
     async function gsReload(message){
       const t = await VG_STORE.loadTrip(gs, gsTrip.snapshot.tripId);
@@ -4385,5 +4520,6 @@ document.addEventListener('keydown', (e)=>{
 
 
 <div id="vgToast">Saved ✅</div>
+<button type="button" id="qaFab" class="qa-fab" onclick="openQuickAdd()" aria-label="Add an expense">＋ Expense</button>
 </body>
 </html>

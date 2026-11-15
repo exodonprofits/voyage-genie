@@ -33,6 +33,7 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
      `node tools/tests/tracker-gs.e2e.cjs` (the tracker against a fake GenieSphere, incl. balances to the cent).
    - Touching invites, joining or member editing on the tracker: `node tools/tests/invites-gs.e2e.cjs`.
    - Touching settle up (pay details, pay links, I paid / Got it): `node tools/tests/settle-gs.e2e.cjs`.
+   - Touching quick add (the ＋ Expense sheet): `node tools/tests/quickadd-gs.e2e.cjs` (phone viewport).
    - Touching login, register or the trip dashboard: `node tools/tests/dashboard-auth.e2e.cjs` (both backends).
    - Touching any other page's Supabase bootstrap, header sign-in, plan/search saves or account: `node tools/tests/pages-gs.e2e.cjs`.
    - Touching `supabase/`: `bash supabase/tests/run.sh`.
