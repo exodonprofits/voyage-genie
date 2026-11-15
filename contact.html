@@ -366,8 +366,10 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 <body>
 
 <!-- Supabase bootstrap -->
+<script src="js/vg-trip-store.js"></script>
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if (!window.supabase) {
     window.supabase = createClient(
       'https://pbojacnagutipfhcxltj.supabase.co',
@@ -723,7 +725,7 @@ document.getElementById('contactForm').addEventListener('submit', async function
   try {
     const sb = window.supabase;
     if (sb) {
-      await sb.from('contact_messages').insert({
+      await sb.from(VGTripStore.table('contact_messages')).insert({
         name, email, subject, message,
         created_at: new Date().toISOString()
       });

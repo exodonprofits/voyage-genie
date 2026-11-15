@@ -922,11 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
         itineraryHtml: itineraryHtml,
         sessionId: sessionId
       };
-      const { error } = await sb.from('user_trips').insert({
-        user_id:   user.id,
-        trip_name: tripData.name,
-        trip_data: tripData
-      });
+      const { error } = await sb.from(VGTripStore.table('user_trips')).insert(VGTripStore.planRow(user.id, tripData.name, tripData));
       if (error) throw error;
       btn.innerHTML = '✅ <span>Saved!</span>';
       setTimeout(() => { btn.disabled = false; btn.innerHTML = '💾 <span>Save to My Trips</span>'; }, 3000);
@@ -966,8 +962,10 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 <!-- Supabase bootstrap for Save to My Trips -->
+<script src="js/vg-trip-store.js"></script>
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if (!window.supabase) {
     window.supabase = createClient(
       'https://pbojacnagutipfhcxltj.supabase.co',

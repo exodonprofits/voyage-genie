@@ -411,8 +411,10 @@ footer {
 </style>
 
 <!-- Supabase bootstrap -->
+<script src="js/vg-trip-store.js"></script>
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if (!window.supabase) {
     window.supabase = createClient(
       'https://pbojacnagutipfhcxltj.supabase.co',

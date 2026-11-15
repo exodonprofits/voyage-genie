@@ -323,8 +323,10 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 <body>
 
 <!-- Supabase bootstrap -->
+<script src="js/vg-trip-store.js"></script>
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if (!window.supabase) {
     window.supabase = createClient(
       'https://pbojacnagutipfhcxltj.supabase.co',
@@ -1438,7 +1440,7 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
     try {
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      await sb.from('search_history').upsert({
+      await sb.from(VGTripStore.table('search_history')).upsert({
         user_id:     user.id,
         destination: entry.destination,
         departure:   entry.departure,
@@ -1455,7 +1457,7 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
     try {
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      const { data } = await sb.from('search_history')
+      const { data } = await sb.from(VGTripStore.table('search_history'))
         .select('search_data, searched_at')
         .eq('user_id', user.id)
         .order('searched_at', { ascending: false })

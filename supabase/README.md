@@ -51,8 +51,10 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
   policies, indexes on every foreign key. Rolled-back check in GenieSphere: linking the owner to "Jimmy" works.
 - **Step 2 built, dark:** tracker, trip dashboard, login and register use GenieSphere only after `?db=gs`
   (remembered per browser; `?db=salon` turns it off). See `js/vg-trip-store.js`.
-- **Not done yet (cutover):** flip `DEFAULT_BACKEND`; switch the other ~30 pages' header sign-in and the planners'
-  plan/search saves to GenieSphere; enable Google sign-in and custom SMTP in GenieSphere; add the site to its
+- **Other pages built, dark:** all 31 remaining pages' bootstrap and header sign-in follow the same switch; itinerary
+  "Save to My Trips" → `vg_plans`, planner history → `vg_search_history`, account → `vg_plans`/`vg_profiles`, contact →
+  `vg_contact_messages` (`tools/tests/pages-gs.e2e.cjs`). `trip-budget-settlement.html` is left on Salon Genie (to retire).
+- **Not done yet (cutover):** flip `DEFAULT_BACKEND`; enable Google sign-in and custom SMTP in GenieSphere; add the site to its
   Auth redirect URLs; re-import trips edited on the live site since the import.
 - **Known advisor notes, to fold into the next migration:** wrap `auth.uid()` as `(select auth.uid())` in policies,
   and index the remaining foreign keys. Both are performance-only and don't matter at current size.

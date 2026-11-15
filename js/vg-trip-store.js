@@ -452,9 +452,27 @@
     return rowsToState(r.data);
   }
 
+  // ── the other pages' tables ───────────────────────────────────
+  // Planners, itineraries, account and contact keep their old table names in
+  // code; these pick the right table (and plan columns) for the backend.
+  var GS_TABLES = { search_history: 'vg_search_history', contact_messages: 'vg_contact_messages', user_trips: 'vg_plans' };
+  function table(name) { return backend() === 'gs' ? (GS_TABLES[name] || name) : name; }
+  // A saved AI plan row: { user_id, name, data } -> the backend's columns.
+  function planRow(userId, name, data) {
+    return backend() === 'gs'
+      ? { user_id: userId, name: String(name || '').slice(0, 200), plan_data: data || {} }
+      : { user_id: userId, trip_name: name, trip_data: data };
+  }
+  function planCols() { return backend() === 'gs' ? 'id, name, plan_data, created_at' : 'id, trip_name, trip_data, created_at'; }
+  function planData(row) { return row ? (row.plan_data || row.trip_data || null) : null; }
+
   global.VGTripStore = {
     backend: backend,
     getClient: getClient,
+    table: table,
+    planRow: planRow,
+    planCols: planCols,
+    planData: planData,
     ensureProfile: ensureProfile,
     rowsToState: rowsToState,
     planMembers: planMembers,

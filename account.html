@@ -419,8 +419,10 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 <body>
 
 <!-- Supabase bootstrap -->
+<script src="js/vg-trip-store.js"></script>
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  if (window.VGTripStore && window.VGTripStore.backend() === 'gs') window.supabase = window.VGTripStore.getClient(createClient);
   if (!window.supabase) {
     window.supabase = createClient(
       'https://pbojacnagutipfhcxltj.supabase.co',
@@ -783,14 +785,14 @@ async function loadAccount() {
   el('accountPanel').classList.remove('hidden');
 
   // Profile
-  const name  = user.user_metadata?.display_name || user.email.split('@')[0];
+  const name  = user.user_metadata?.display_name || user.user_metadata?.full_name || user.email.split('@')[0];
   const since = new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   el('profileAvatar').textContent = name[0]?.toUpperCase() || '👤';
   el('profileName').textContent   = name;
   el('profileEmail').textContent  = user.email;
   el('profileSince').textContent  = `Member since ${since}`;
   el('acct-email').value = user.email;
-  el('acct-name').value  = user.user_metadata?.display_name || '';
+  el('acct-name').value  = user.user_metadata?.display_name || user.user_metadata?.full_name || '';
 
   // Session info
   const { data: { session } } = await sb.auth.getSession();
@@ -801,11 +803,11 @@ async function loadAccount() {
 
   // Load trip stats
   try {
-    const { data: trips } = await sb.from('user_trips').select('id, trip_data').eq('user_id', user.id);
+    const { data: trips } = await sb.from(VGTripStore.table('user_trips')).select(VGTripStore.planCols()).eq('user_id', user.id);
     if (trips) {
       const now = new Date();
-      const upcoming = trips.filter(t => t.trip_data?.startDate && new Date(t.trip_data.startDate) > now).length;
-      const past     = trips.filter(t => t.trip_data?.endDate   && new Date(t.trip_data.endDate)   < now).length;
+      const upcoming = trips.filter(t => VGTripStore.planData(t)?.startDate && new Date(VGTripStore.planData(t).startDate) > now).length;
+      const past     = trips.filter(t => VGTripStore.planData(t)?.endDate   && new Date(VGTripStore.planData(t).endDate)   < now).length;
       el('statTotal').textContent    = trips.length;
       el('statUpcoming').textContent = upcoming;
       el('statPast').textContent     = past;
@@ -820,6 +822,10 @@ async function loadAccount() {
     try {
       const { error } = await sb.auth.updateUser({ data: { display_name: displayName } });
       if (error) throw error;
+      if (VGTripStore.backend() === 'gs') {
+        const r = await sb.from('vg_profiles').update({ full_name: displayName.slice(0, 120) || null }).eq('user_id', user.id);
+        if (r.error) throw r.error;
+      }
       el('profileName').textContent = displayName || name;
       showToast('✅ Profile updated!');
     } catch(e) {
@@ -876,7 +882,7 @@ async function loadAccount() {
   // Export data
   el('exportDataBtn').addEventListener('click', async () => {
     try {
-      const { data: trips } = await sb.from('user_trips').select('*').eq('user_id', user.id);
+      const { data: trips } = await sb.from(VGTripStore.table('user_trips')).select('*').eq('user_id', user.id);
       const blob = new Blob([JSON.stringify({ user: { email: user.email }, trips }, null, 2)], { type: 'application/json' });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
@@ -893,7 +899,7 @@ async function loadAccount() {
     if (!confirm('Are you sure you want to delete your account? This cannot be undone — all your saved trips will be permanently deleted.')) return;
     if (!confirm('This is permanent. Delete account?')) return;
     try {
-      await sb.from('user_trips').delete().eq('user_id', user.id);
+      await sb.from(VGTripStore.table('user_trips')).delete().eq('user_id', user.id);
       await sb.auth.admin.deleteUser(user.id).catch(() => {});
       await sb.auth.signOut();
       location.href = 'index.html';

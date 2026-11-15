@@ -17,8 +17,8 @@
   function dbKey(project) { return 'fake-' + (project === GS ? 'gs' : 'salon') + '-db'; }
   function emptyDb(project) {
     return project === GS
-      ? { vg_trips: [], vg_trip_members: [], vg_trip_expenses: [], vg_trip_settlements: [], vg_plans: [], vg_profiles: [], shares: {} }
-      : { trips: [], user_trips: [], user_preferences: [] };
+      ? { vg_trips: [], vg_trip_members: [], vg_trip_expenses: [], vg_trip_settlements: [], vg_plans: [], vg_profiles: [], vg_search_history: [], vg_contact_messages: [], shares: {} }
+      : { trips: [], user_trips: [], user_preferences: [], search_history: [], contact_messages: [] };
   }
   function loadDb(project) {
     try { var d = JSON.parse(localStorage.getItem(dbKey(project))); if (d) return d; } catch (e) {}
@@ -39,11 +39,13 @@
   }
 
   function builder(project, table) {
-    var op = 'select', payload = null, filters = [], mode = 'many';
+    var op = 'select', payload = null, filters = [], mode = 'many', conflict = null, max = null;
     var b = {
       select: function () { return b; },
       insert: function (v) { op = 'insert'; payload = v; return b; },
       update: function (v) { op = 'update'; payload = v; return b; },
+      upsert: function (v, o) { op = 'insert'; payload = v; conflict = ((o && o.onConflict) || 'id').split(','); return b; },
+      limit: function (n) { max = n; return b; },
       delete: function () { op = 'delete'; return b; },
       eq: function (c, v) { filters.push(function (r) { return r[c] === v; }); return b; },
       in: function (c, arr) { filters.push(function (r) { return arr.indexOf(r[c]) >= 0; }); return b; },
@@ -57,8 +59,10 @@
     function match(r) { return filters.every(function (f) { return f(r); }); }
     function visible(db, r) {
       var me = user(); if (!me) return false;
+      if (table === 'contact_messages') return false;
       if (project !== GS) return r.owner_id === me || r.user_id === me;
-      if (table === 'vg_plans' || table === 'vg_profiles') return r.user_id === me;
+      if (table === 'vg_plans' || table === 'vg_profiles' || table === 'vg_search_history') return r.user_id === me;
+      if (table === 'vg_contact_messages') return false;
       var tripId = table === 'vg_trips' ? r.id : r.trip_id;
       return db.vg_trip_members.some(function (m) { return m.trip_id === tripId && m.user_id === me; }) ||
              db.vg_trips.some(function (t) { return t.id === tripId && t.owner_id === me; });
@@ -68,9 +72,14 @@
       if (!rows) throw new Error('relation "' + table + '" does not exist');
       if (op === 'select') {
         out = rows.filter(function (r) { return match(r) && visible(db, r); }).map(clone);
+        if (max !== null) out = out.slice(0, max);
       } else if (op === 'insert') {
-        if (!user()) throw new Error('not signed in');
+        if (!user() && !/contact_messages$/.test(table)) throw new Error('not signed in');
         out = (Array.isArray(payload) ? payload : [payload]).map(function (v) {
+          if (conflict) {
+            var same = rows.find(function (r) { return conflict.every(function (c) { return r[c] === v[c]; }); });
+            if (same) { Object.assign(same, clone(v)); return clone(same); }
+          }
           var row = Object.assign({ id: uid(), created_at: now(), updated_at: now() }, clone(v));
           if (table === 'vg_profiles') { delete row.id; if (rows.some(function (r) { return r.user_id === row.user_id; })) throw new Error('duplicate key'); }
           if (table === 'vg_trip_members') {
@@ -158,6 +167,7 @@
         logAuth({ project: project, call: 'signUp', email: a.email, options: a.options || null });
         return Promise.resolve({ data: { user: { id: 'user-' + a.email.split('@')[0], email: a.email, user_metadata: (a.options && a.options.data) || {} }, session: null }, error: null });
       },
+      updateUser: function (a) { logAuth({ project: project, call: 'updateUser', data: a.data || null }); return Promise.resolve({ data: { user: who() }, error: null }); },
       signOut: function () { localStorage.removeItem('fake-signed-in'); return Promise.resolve({ error: null }); }
     };
   }
