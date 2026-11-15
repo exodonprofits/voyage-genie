@@ -279,6 +279,10 @@ section { padding: 80px 0; }
 }
 .ask-chip:hover { background: rgba(255,255,255,0.25); }
 
+.finder-cta { display: flex; justify-content: center; margin-bottom: 28px; }
+@media (max-width: 560px) { .finder-cta .btn { width: 100%; } }
+.ask-or { text-align: center; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.7); margin-bottom: 14px; }
+
 /* tools */
 .tools-bg { background: #fff; }
 .tool-cols { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; }
@@ -501,10 +505,14 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 <section class="ask-bg" id="ask">
   <div class="rail">
     <h2 class="section-title">Not sure where to go yet?</h2>
-    <p class="section-subtitle">Ask Genie anything: destinations, timing, budgets, what to pack.</p>
+    <p class="section-subtitle">Tell the Smart Trip Finder when you can travel, your budget and your style. It suggests best-value destinations, each with a one-tap live price search.</p>
+    <div class="finder-cta">
+      <a class="btn btn-coral" href="smart-trip-finder.html">🧭 Find my best-value trip →</a>
+    </div>
+    <p class="ask-or">or ask Genie anything</p>
     <form class="ask-form" id="askGenieForm" autocomplete="off">
       <input class="ask-input" id="askGenieInput" type="text" placeholder="e.g. Warm beach trip in March for 6 under $1,500 each" aria-label="Ask Genie"/>
-      <button class="btn btn-coral" id="askGenieButton" type="submit">✨ Ask Genie</button>
+      <button class="btn btn-ghost" id="askGenieButton" type="submit">✨ Ask Genie</button>
     </form>
     <div class="ask-chips" id="askChips">
       <button class="ask-chip" type="button">Best Caribbean islands for families</button>
@@ -575,6 +583,7 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
         <a href="cruise-trip-planner.html">Cruise</a>
         <a href="airbnb-trip-planner.html">City &amp; Stays</a>
         <a href="adventure-trip-planner.html">Adventure</a>
+        <a href="smart-trip-finder.html">Smart Trip Finder</a>
       </div>
       <div class="footer-col">
         <h4>Group trips</h4>
@@ -675,6 +684,7 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
       item('trip-dashboard.html', '📋 My Trips'),
       item('trip-cost-tracker.html', '💰 New cost tracker'),
       divider(), label('Plan a new trip'),
+      item('smart-trip-finder.html', '🧭 Not sure where? Trip Finder'),
       item('tropical-trip-planner.html', '🏖️ Tropical Resort'),
       item('cruise-trip-planner.html', '🚢 Cruise Adventure'),
       item('airbnb-trip-planner.html', '🏨 City & Stays'),
@@ -703,6 +713,7 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
       label('Explore'),
       item('#how', '💡 How it works'),
       item('#plan-trip', '🗺️ Plan a trip'),
+      item('smart-trip-finder.html', '🧭 Smart Trip Finder'),
       item('trip-cost-tracker.html', '💰 Cost tracker'),
       item('#travel-tools', '🧰 Travel tools'),
       item('contact.html', '📩 Contact'),
