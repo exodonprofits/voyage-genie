@@ -126,8 +126,10 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
 
   // ── 6. the old backend is untouched without ?db=gs ──────────────
   const old = await newPage(OWNER);
+  await old.goto(base + '?db=salon', { waitUntil: 'load' });   // ?db=salon also forgets the remembered choice
+  ok(await old.evaluate(() => gs === null), 'with ?db=salon the page uses Salon Genie again');
   await old.goto(base, { waitUntil: 'load' });
-  ok(await old.evaluate(() => gs === null), 'without ?db=gs the page still uses Salon Genie');
+  ok(await old.evaluate(() => gs === null), '...and stays on Salon Genie on the next visit');
 
   ok(errors.length === 0, 'no JS errors or alerts: ' + JSON.stringify(errors));
   await browser.close(); srv.close();

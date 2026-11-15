@@ -262,8 +262,15 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 
 <!-- Supabase v2 global -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- GenieSphere trip store (Phase 2): picks the backend; Salon Genie unless ?db=gs was used -->
+<script src="js/vg-trip-store.js"></script>
 <script>
   (function(){
+    if (window.VGTripStore && window.VGTripStore.backend() === 'gs') {
+      window.__vg_sb = window.VGTripStore.getClient();
+      window.__vg_gs = true;
+      return;
+    }
     const URL = 'https://pbojacnagutipfhcxltj.supabase.co';
     const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBib2phY25hZ3V0aXBmaGN4bHRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMDkwODAsImV4cCI6MjA2MzU4NTA4MH0.ZLCcAzTYljoZycpBGwMtthP5VyAJ4schuIvt4HibGc0';
     if (!window.__vg_sb && window.supabase?.createClient) {
@@ -462,6 +469,12 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
   // Create-only-if-absent, so it is safe to run on any sign-in.
   async function ensureProfile(user) {
     if (!user || !vg) return;
+    if (window.__vg_gs) {
+      // GenieSphere: vg_profiles row, then pick up trips imported under this email
+      try { await window.VGTripStore.ensureProfile(vg, user); } catch (e) { console.warn('[login] profile:', e.message); }
+      try { await window.VGTripStore.claimLegacy(vg); } catch (e) { console.warn('[login] claim:', e.message); }
+      return;
+    }
     try {
       const { data: existing, error: readErr } = await vg
         .from('user_preferences')
@@ -566,6 +579,31 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
       showError(ex?.message || 'Could not reach Google. Check your connection and try again.');
     }
   });
+
+  // ── Email sign-in link (GenieSphere) ───────────────────────────
+  // Accounts from the old database have no GenieSphere password yet, so
+  // offer a one-time link by email. It also covers forgotten passwords.
+  if (window.__vg_gs) {
+    const linkBtn = document.createElement('button');
+    linkBtn.type = 'button';
+    linkBtn.id = 'magicLinkBtn';
+    linkBtn.className = 'btn-google';
+    linkBtn.style.marginTop = '10px';
+    linkBtn.textContent = '✉️ Email me a sign-in link instead';
+    linkBtn.addEventListener('click', async () => {
+      clearAlerts();
+      const email = document.getElementById('email').value.trim();
+      if (!email) { showError('Enter your email address above, then tap this again.'); return; }
+      linkBtn.disabled = true;
+      const redirectTo = location.origin + location.pathname +
+        (nextTarget && nextTarget !== 'index.html' ? '?next=' + encodeURIComponent(nextTarget) : '');
+      const { error } = await vg.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+      linkBtn.disabled = false;
+      if (error) { showError(error.message || 'Could not send the link. Please try again.'); return; }
+      showSuccess('Check your email: we sent you a sign-in link.');
+    });
+    document.getElementById('submitBtn').after(linkBtn);
+  }
 
   // ── Form submit ────────────────────────────────────────────────
   document.getElementById('loginForm').addEventListener('submit', async (e) => {

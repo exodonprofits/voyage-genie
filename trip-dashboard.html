@@ -384,9 +384,14 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 </head>
 <body>
 
+<!-- GenieSphere trip store (Phase 2): picks the backend; Salon Genie unless ?db=gs was used -->
+<script src="js/vg-trip-store.js"></script>
 <!-- Supabase bootstrap -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+  if (window.VGTripStore && window.VGTripStore.backend() === 'gs') {
+    window.supabase = window.VGTripStore.getClient(createClient);
+  }
   if (!window.supabase) {
     window.supabase = createClient(
       'https://pbojacnagutipfhcxltj.supabase.co',
@@ -1039,6 +1044,13 @@ Booked via: Expedia"></textarea>
   // ── State ─────────────────────────────────────────────────────────────────
   let user = null, rows = [], view = [], currentTripId = null, editingIndex = null;
 
+  // Backend: GenieSphere (vg_ tables) when ?db=gs was used, else Salon Genie.
+  const GS_MODE = !!(window.VGTripStore && window.VGTripStore.backend() === 'gs');
+  const PLAN = GS_MODE ? { table: 'vg_plans', name: 'name', data: 'plan_data' }
+                       : { table: 'user_trips', name: 'trip_name', data: 'trip_data' };
+  const planRow = (name, data) => ({ user_id: user.id, [PLAN.name]: name, [PLAN.data]: data });
+  const fromPlan = r => ({ id: r.id, trip_name: r[PLAN.name], trip_data: r[PLAN.data] || {}, created_at: r.created_at, updated_at: r.updated_at });
+
   const isLegacy    = r => String(r.id).startsWith('legacy_') || !!r.trip_data?.splitter_only;
   const getLegacyId = r => r.trip_data?.legacy_id || String(r.id).replace(/^legacy_/, '');
   const getRow      = id => view.find(v => String(v.id) === String(id)) || rows.find(v => String(v.id) === String(id));
@@ -1056,6 +1068,7 @@ Booked via: Expedia"></textarea>
 
   async function loadTrips() {
     user = await requireAuth(); if (!user) return;
+    if (GS_MODE) return loadTripsGs();
     const [{ data:main, error }, { data:legacy }] = await Promise.all([
       sb.from('user_trips').select('id,trip_name,trip_data,created_at,updated_at').eq('user_id', user.id).order('updated_at', { ascending: false }),
       sb.from('trips').select('id,name,form_data,created_at,updated_at,owner_id').eq('owner_id', user.id).order('updated_at', { ascending: false })
@@ -1289,12 +1302,116 @@ Booked via: Expedia"></textarea>
     document.querySelectorAll('.overflow-menu.open').forEach(m => m.classList.remove('open'));
   });
 
+  // ── Cost-tracker trips ────────────────────────────────────────────────────
+  // These hold their full data in the tracker's own format (Salon Genie: the
+  // trips.form_data blob; GenieSphere: vg_ rows). The dashboard only renames,
+  // copies or deletes them whole; everything else happens in the tracker.
+  function shortName(name) { return String(name || '').split(' – ')[0].trim(); }
+
+  async function renameSplitterTrip(r, newName) {
+    const lid = getLegacyId(r);
+    if (GS_MODE) {
+      const { data: t, error: e1 } = await sb.from('vg_trips').select('settings').eq('id', lid).maybeSingle();
+      if (e1 || !t) { toast('Could not rename: ' + (e1 ? e1.message : 'trip not found'), 'error'); return false; }
+      const settings = Object.assign({}, t.settings || {}, { tripName: shortName(newName) });
+      const { data, error } = await sb.from('vg_trips').update({ name: newName, settings }).eq('id', lid).select('id');
+      if (error || !data || !data.length) { toast(error ? 'Could not rename: ' + error.message : 'Only the trip owner can rename it.', 'error'); return false; }
+    } else {
+      const { data: t, error: e1 } = await sb.from('trips').select('form_data').eq('id', lid).maybeSingle();
+      if (e1 || !t) { toast('Could not rename: ' + (e1 ? e1.message : 'trip not found'), 'error'); return false; }
+      const fd = Object.assign({}, t.form_data || {}, { tripTitle: newName, tripName: shortName(newName) });
+      const { error } = await sb.from('trips').update({ name: newName, form_data: fd }).eq('id', lid);
+      if (error) { toast('Could not rename: ' + error.message, 'error'); return false; }
+    }
+    await loadTrips();
+    return true;
+  }
+
+  async function duplicateSplitterTrip(r) {
+    const lid = getLegacyId(r);
+    const copyName = toTitle(r.trip_data) + ' (Copy)';
+    try {
+      if (GS_MODE) {
+        const src = await window.VGTripStore.loadTrip(sb, lid);
+        if (!src) throw new Error('trip not found');
+        const st = src.state;
+        st.people = st.people.map(p => ({ name: p.name, payer: p.payer, size: p.size }));
+        st.expenses = st.expenses.map(e => { const c = Object.assign({}, e); delete c._id; return c; });
+        st.tripTitle = copyName; st.tripName = shortName(copyName);
+        const fresh = await window.VGTripStore.createTrip(sb, copyName);
+        await window.VGTripStore.saveTrip(sb, fresh.snapshot, st);
+      } else {
+        const { data: t, error: e1 } = await sb.from('trips').select('form_data').eq('id', lid).maybeSingle();
+        if (e1 || !t) throw new Error(e1 ? e1.message : 'trip not found');
+        const fd = Object.assign({}, t.form_data || {}, { tripTitle: copyName, tripName: shortName(copyName) });
+        const { error } = await sb.from('trips').insert({ owner_id: user.id, name: copyName, form_data: fd });
+        if (error) throw error;
+      }
+      return true;
+    } catch (e) {
+      toast('Failed to duplicate trip: ' + (e.message || e), 'error');
+      return false;
+    }
+  }
+
+  // Returns an error object, or null.
+  async function deleteSplitterTrip(r) {
+    const lid = getLegacyId(r);
+    if (GS_MODE) {
+      const { data, error } = await sb.from('vg_trips').delete().eq('id', lid).select('id');
+      if (error) return error;
+      if (!data || !data.length) return { message: 'only the trip owner can delete it' };
+      return null;
+    }
+    const { error } = await sb.from('trips').delete().eq('id', lid).eq('owner_id', user.id);
+    return error || null;
+  }
+
+  // GenieSphere: AI plans from vg_plans, cost-tracker trips from vg_trips
+  // (every trip you're on, not only ones you own).
+  async function loadTripsGs() {
+    try { await window.VGTripStore.claimLegacy(sb); } catch (e) { console.warn('[dashboard] claim skipped:', e.message); }
+    const [{ data: plans, error }, { data: trips, error: tErr }] = await Promise.all([
+      sb.from('vg_plans').select('id,name,plan_data,created_at,updated_at').eq('user_id', user.id).order('updated_at', { ascending: false }),
+      sb.from('vg_trips').select('id,name,start_date,end_date,owner_id,created_at,updated_at').order('updated_at', { ascending: false })
+    ]);
+    if (error) console.warn('[dashboard] plans:', error.message);
+    if (tErr) console.warn('[dashboard] trips:', tErr.message);
+    const tripList = trips || [];
+    const ids = tripList.map(t => t.id);
+    let members = [], spends = [];
+    if (ids.length) {
+      const [m, e] = await Promise.all([
+        sb.from('vg_trip_members').select('id,trip_id,display_name,in_split').in('trip_id', ids),
+        sb.from('vg_trip_expenses').select('trip_id,paid_by_member_id,amount,description,spent_on').in('trip_id', ids)
+      ]);
+      members = m.data || []; spends = e.data || [];
+    }
+    const nameOf = {};
+    members.forEach(m => { nameOf[m.id] = m.display_name; });
+    const splitterRows = tripList.map(t => {
+      const people = members.filter(m => m.trip_id === t.id && m.in_split !== false).map(m => m.display_name);
+      const exp = spends.filter(x => x.trip_id === t.id).map(x => ({ date: x.spent_on || '', desc: x.description || '', paidBy: nameOf[x.paid_by_member_id] || '', amount: Number(x.amount) || 0 }));
+      const name = t.name || 'Expense Splitter Trip';
+      return { id: 'legacy_' + t.id, trip_name: name, created_at: t.created_at, updated_at: t.updated_at,
+               trip_data: { name, tripType: 'Expense Splitter', notes: 'Group cost tracker', legacy_id: t.id, splitter_only: true,
+                            startDate: t.start_date || '', endDate: t.end_date || '', expenses: exp, participants: people,
+                            isOwner: t.owner_id === user.id } };
+    });
+    rows = [...(error ? [] : (plans || []).map(fromPlan)), ...splitterRows];
+    applyFilters();
+    renderQuickActions();
+  }
+
   // ── Trip actions ──────────────────────────────────────────────────────────
   async function persistTrip(id, newData) {
     const row = getRow(id); if (!row) return;
-    let error;
-    if (isLegacy(row)) { const lid = getLegacyId(row); ({ error } = await sb.from('trips').update({ form_data: newData }).eq('id', lid)); }
-    else               { ({ error } = await sb.from('user_trips').update({ trip_data: newData, updated_at: new Date().toISOString() }).eq('id', id)); }
+    // Cost-tracker trips hold their full data in the tracker's format; writing
+    // the dashboard's summary over it would erase sizes, payers and paid marks.
+    if (isLegacy(row)) { console.warn('[dashboard] refusing to overwrite a cost-tracker trip'); return false; }
+    const changes = { [PLAN.data]: newData };
+    if (!GS_MODE) changes.updated_at = new Date().toISOString();
+    const { error } = await sb.from(PLAN.table).update(changes).eq('id', id);
     if (error) { toast('Failed to save changes.', 'error'); return false; }
     await loadTrips();
     return true;
@@ -1348,6 +1465,7 @@ Booked via: Expedia"></textarea>
       const newName = input.value.trim();
       popover.remove();
       if (!newName || newName === current) return;
+      if (isLegacy(r)) { if (await renameSplitterTrip(r, newName)) toast('Trip renamed.', 'success'); return; }
       const updated = { ...r.trip_data, name: newName };
       await persistTrip(id, updated);
       toast('Trip renamed.', 'success');
@@ -1368,11 +1486,10 @@ Booked via: Expedia"></textarea>
 
   async function duplicateTrip(id) {
     const r = getRow(id); if (!r) return;
+    if (isLegacy(r)) { if (await duplicateSplitterTrip(r)) { toast('Trip duplicated!', 'success'); await loadTrips(); } return; }
     const copy = JSON.parse(JSON.stringify(r.trip_data));
     copy.name = (copy.name || toTitle(copy)) + ' (Copy)';
-    let error;
-    if (isLegacy(r)) { ({ error } = await sb.from('trips').insert({ owner_id: user.id, name: toTitle(copy), form_data: copy })); }
-    else             { ({ error } = await sb.from('user_trips').insert({ user_id: user.id, trip_name: toTitle(copy), trip_data: copy })); }
+    const { error } = await sb.from(PLAN.table).insert(planRow(toTitle(copy), copy));
     if (error) { toast('Failed to duplicate trip.', 'error'); return; }
     toast('Trip duplicated!', 'success');
     await loadTrips();
@@ -1384,8 +1501,8 @@ Booked via: Expedia"></textarea>
     const yes = await confirm2('Delete this trip?', `"${name}" will be permanently removed. This cannot be undone.`);
     if (!yes) return;
     let error;
-    if (isLegacy(row)) { const lid = getLegacyId(row); ({ error } = await sb.from('trips').delete().eq('id', lid).eq('owner_id', user.id)); }
-    else               { ({ error } = await sb.from('user_trips').delete().eq('id', id).eq('user_id', user.id)); }
+    if (isLegacy(row)) { error = await deleteSplitterTrip(row); }
+    else               { ({ error } = await sb.from(PLAN.table).delete().eq('id', id).eq('user_id', user.id)); }
     if (error) { toast(`Failed to delete: ${error.message}`, 'error'); return; }
     toast('Trip deleted.', 'success');
     await loadTrips();
@@ -1427,8 +1544,8 @@ Booked via: Expedia"></textarea>
     const f = e.target.files?.[0]; if (!f) return;
     let list;
     try { list = JSON.parse(await f.text()); } catch { toast('Invalid JSON file.', 'error'); return; }
-    const toInsert = (Array.isArray(list) ? list : [list]).map(d => ({ user_id: user.id, trip_name: toTitle(d), trip_data: d }));
-    const { error } = await sb.from('user_trips').insert(toInsert);
+    const toInsert = (Array.isArray(list) ? list : [list]).map(d => planRow(toTitle(d), d));
+    const { error } = await sb.from(PLAN.table).insert(toInsert);
     if (error) { toast('Import failed.', 'error'); return; }
     toast(`✅ Imported ${toInsert.length} trip${toInsert.length>1?'s':''}.`, 'success');
     await loadTrips(); e.target.value = '';
@@ -1543,8 +1660,7 @@ Booked via: Expedia"></textarea>
   async function openOldSplitter() {
     if (!currentTripId) return;
     const r = getRow(currentTripId); if (!r) return;
-    saveParticipants(r.trip_data);
-    await persistTrip(currentTripId, r.trip_data);
+    if (!isLegacy(r)) { saveParticipants(r.trip_data); await persistTrip(currentTripId, r.trip_data); }
     goToSplitter(currentTripId);
   }
 
@@ -2023,11 +2139,7 @@ ${text.slice(0, 3000)}`
     btn.textContent = 'Saving…';
     setAtStatus('');
 
-    const { error } = await sb.from('user_trips').insert({
-      user_id:   user.id,
-      trip_name: name,
-      trip_data: tripData,
-    });
+    const { error } = await sb.from(PLAN.table).insert(planRow(name, tripData));
 
     btn.disabled = false;
     btn.textContent = '💾 Save Trip';

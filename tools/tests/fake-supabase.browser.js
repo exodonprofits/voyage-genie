@@ -1,23 +1,44 @@
-// Browser stand-in for supabase-js, used by tracker-gs.e2e.cjs in place of the
-// CDN script. GenieSphere (nxgtefbqizvihwikqnaw) gets an in-memory database
-// persisted to localStorage, so it survives page reloads; any other project
-// (the old Salon Genie client the header still uses) gets an empty stub.
-// window.__FAKE_USER (set before load) is the signed-in user id, or null.
+// Browser stand-in for supabase-js, used by the e2e tests in place of the CDN.
+// Serves both the global build (window.supabase) and, when window.__FAKE_ESM
+// is set before it runs, the module build (export createClient).
+//
+// Each project gets an in-memory database persisted to localStorage, so data
+// survives reloads: GenieSphere (nxgtefbqizvihwikqnaw) with the vg_ tables,
+// Salon Genie (pbojacnagutipfhcxltj) with trips / user_trips / user_preferences.
+// Crude row security: you see rows of trips you're on (GenieSphere) or rows
+// you own (Salon Genie). The real rules are tested in supabase/tests.
+//
+// Signed-in user: window.__FAKE_USER if set (string id, or null for signed
+// out), else whoever signed in through signInWithPassword on this origin.
+// Auth calls are recorded in localStorage 'fake-auth-log' for assertions.
 (function () {
   'use strict';
-  var KEY = 'fake-gs-db';
-  function loadDb() {
-    try { var d = JSON.parse(localStorage.getItem(KEY)); if (d) return d; } catch (e) {}
-    return { vg_trips: [], vg_trip_members: [], vg_trip_expenses: [], vg_trip_settlements: [], shares: {} };
+  var GS = 'nxgtefbqizvihwikqnaw';
+  function dbKey(project) { return 'fake-' + (project === GS ? 'gs' : 'salon') + '-db'; }
+  function emptyDb(project) {
+    return project === GS
+      ? { vg_trips: [], vg_trip_members: [], vg_trip_expenses: [], vg_trip_settlements: [], vg_plans: [], vg_profiles: [], shares: {} }
+      : { trips: [], user_trips: [], user_preferences: [] };
   }
-  function saveDb(db) { localStorage.setItem(KEY, JSON.stringify(db)); }
+  function loadDb(project) {
+    try { var d = JSON.parse(localStorage.getItem(dbKey(project))); if (d) return d; } catch (e) {}
+    return emptyDb(project);
+  }
+  function saveDb(project, db) { localStorage.setItem(dbKey(project), JSON.stringify(db)); }
   var clock = Date.now();
   function now() { clock += 1000; return new Date(clock).toISOString(); }
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
-  function uid() { return (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); }
-  function user() { return window.__FAKE_USER || null; }
+  function uid() { return crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2); }
+  function logAuth(entry) {
+    var l = []; try { l = JSON.parse(localStorage.getItem('fake-auth-log')) || []; } catch (e) {}
+    l.push(entry); localStorage.setItem('fake-auth-log', JSON.stringify(l));
+  }
+  function user() {
+    if (window.__FAKE_USER !== undefined) return window.__FAKE_USER;
+    return localStorage.getItem('fake-signed-in') || null;
+  }
 
-  function builder(table) {
+  function builder(project, table) {
     var op = 'select', payload = null, filters = [], mode = 'many';
     var b = {
       select: function () { return b; },
@@ -35,20 +56,23 @@
     };
     function match(r) { return filters.every(function (f) { return f(r); }); }
     function visible(db, r) {
-      // crude RLS: signed-in members see their trips' rows
       var me = user(); if (!me) return false;
+      if (project !== GS) return r.owner_id === me || r.user_id === me;
+      if (table === 'vg_plans' || table === 'vg_profiles') return r.user_id === me;
       var tripId = table === 'vg_trips' ? r.id : r.trip_id;
       return db.vg_trip_members.some(function (m) { return m.trip_id === tripId && m.user_id === me; }) ||
              db.vg_trips.some(function (t) { return t.id === tripId && t.owner_id === me; });
     }
     function run() {
-      var db = loadDb(), rows = db[table], out;
+      var db = loadDb(project), rows = db[table], out;
+      if (!rows) throw new Error('relation "' + table + '" does not exist');
       if (op === 'select') {
         out = rows.filter(function (r) { return match(r) && visible(db, r); }).map(clone);
       } else if (op === 'insert') {
         if (!user()) throw new Error('not signed in');
         out = (Array.isArray(payload) ? payload : [payload]).map(function (v) {
-          var row = Object.assign({ id: uid(), created_at: now() }, clone(v));
+          var row = Object.assign({ id: uid(), created_at: now(), updated_at: now() }, clone(v));
+          if (table === 'vg_profiles') { delete row.id; if (rows.some(function (r) { return r.user_id === row.user_id; })) throw new Error('duplicate key'); }
           if (table === 'vg_trip_members') {
             row.role = row.role || 'editor'; row.in_split = row.in_split !== false; row.household_size = row.household_size || 1;
             row.user_id = row.user_id || null; row.payer_member_id = row.payer_member_id || null; row.pay_handles = {};
@@ -65,19 +89,26 @@
           return clone(row);
         });
       } else if (op === 'update') {
-        out = rows.filter(match).map(function (r) { Object.assign(r, clone(payload)); return clone(r); });
+        out = rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); })
+                  .map(function (r) { Object.assign(r, clone(payload)); r.updated_at = now(); return clone(r); });
       } else {
-        var gone = rows.filter(match);
+        var gone = rows.filter(function (r) { return match(r) && (project === GS ? (table !== 'vg_trips' || r.owner_id === user()) : visible(db, r)); });
         if (table === 'vg_trip_members') {
           gone.forEach(function (m) {
             if (db.vg_trip_expenses.some(function (e) { return e.paid_by_member_id === m.id; })) throw new Error('member still paid an expense');
           });
           db.vg_trip_settlements = db.vg_trip_settlements.filter(function (s) { return !gone.some(function (m) { return s.from_member_id === m.id || s.to_member_id === m.id; }); });
         }
-        db[table] = (table === 'vg_trip_members' ? db.vg_trip_members : rows).filter(function (r) { return !match(r); });
+        if (table === 'vg_trips') {
+          var ids = gone.map(function (t) { return t.id; });
+          ['vg_trip_members', 'vg_trip_expenses', 'vg_trip_settlements'].forEach(function (t) {
+            db[t] = db[t].filter(function (r) { return ids.indexOf(r.trip_id) < 0; });
+          });
+        }
+        db[table] = db[table].filter(function (r) { return gone.indexOf(r) < 0; });
         out = gone.map(clone);
       }
-      saveDb(db);
+      saveDb(project, db);
       if (mode === 'single') return out.length === 1 ? { data: out[0], error: null } : { data: null, error: { message: 'expected one row, got ' + out.length } };
       if (mode === 'maybe') return { data: out[0] || null, error: null };
       return { data: out, error: null };
@@ -85,8 +116,9 @@
     return b;
   }
 
-  function rpc(name, args) {
-    var db = loadDb(), me = user(), r = { data: null, error: null };
+  function rpc(project, name, args) {
+    var db = loadDb(project), me = user(), r = { data: null, error: null };
+    logAuth({ rpc: name });
     if (name === 'vg_claim_legacy') r.data = { trips: 0, plans: 0 };
     else if (name === 'vg_link_me') {
       var mine = db.vg_trip_members.find(function (m) { return m.trip_id === args.p_trip && m.user_id === me; });
@@ -104,36 +136,43 @@
                    expenses: pick('vg_trip_expenses'), settlements: pick('vg_trip_settlements') };
       }
     } else r.error = { message: 'rpc not faked: ' + name };
-    saveDb(db);
+    saveDb(project, db);
     return Promise.resolve(r);
   }
 
-  function auth() {
+  function auth(project) {
+    var who = function () { var u = user(); return u ? { id: u, email: u + '@test.dev', user_metadata: {} } : null; };
     return {
-      getUser: function () { return Promise.resolve({ data: { user: user() ? { id: user(), email: 'owner@test.dev' } : null }, error: null }); },
-      getSession: function () { return Promise.resolve({ data: { session: user() ? { user: { id: user(), email: 'owner@test.dev' } } : null }, error: null }); },
+      getUser: function () { return Promise.resolve({ data: { user: who() }, error: null }); },
+      getSession: function () { return Promise.resolve({ data: { session: who() ? { user: who() } : null }, error: null }); },
       onAuthStateChange: function () { return { data: { subscription: { unsubscribe: function () {} } } }; },
-      signInWithOtp: function () { return Promise.resolve({ data: {}, error: null }); },
-      signOut: function () { return Promise.resolve({ error: null }); }
+      signInWithPassword: function (a) {
+        logAuth({ project: project, call: 'signInWithPassword', email: a.email });
+        var id = 'user-' + a.email.split('@')[0];
+        localStorage.setItem('fake-signed-in', id);
+        return Promise.resolve({ data: { user: { id: id, email: a.email, user_metadata: {} }, session: {} }, error: null });
+      },
+      signInWithOtp: function (a) { logAuth({ project: project, call: 'signInWithOtp', email: a.email, options: a.options }); return Promise.resolve({ data: {}, error: null }); },
+      signInWithOAuth: function (a) { logAuth({ project: project, call: 'signInWithOAuth', provider: a.provider }); return Promise.resolve({ data: {}, error: { message: 'oauth not faked' } }); },
+      signUp: function (a) {
+        logAuth({ project: project, call: 'signUp', email: a.email, options: a.options || null });
+        return Promise.resolve({ data: { user: { id: 'user-' + a.email.split('@')[0], email: a.email, user_metadata: (a.options && a.options.data) || {} }, session: null }, error: null });
+      },
+      signOut: function () { localStorage.removeItem('fake-signed-in'); return Promise.resolve({ error: null }); }
     };
   }
-  function emptyQuery() {
-    var res = { data: [], error: null };
-    var p = new Proxy(function () {}, { get: function (t, k) {
-      if (k === 'then') return function (a, b) { return Promise.resolve(res).then(a, b); };
-      if (k === 'single' || k === 'maybeSingle') return function () { return Promise.resolve({ data: null, error: null }); };
-      return function () { return p; };
-    } });
-    return p;
-  }
 
-  window.supabase = {
+  var lib = {
     createClient: function (url) {
-      if (String(url).indexOf('nxgtefbqizvihwikqnaw') >= 0) return { from: builder, rpc: rpc, auth: auth() };
-      return { from: emptyQuery, rpc: function () { return Promise.resolve({ data: null, error: null }); },
-               auth: { getUser: function () { return Promise.resolve({ data: { user: null } }); },
-                       getSession: function () { return Promise.resolve({ data: { session: null } }); },
-                       onAuthStateChange: function () { return { data: { subscription: { unsubscribe: function () {} } } }; } } };
+      var project = String(url).indexOf(GS) >= 0 ? GS : 'salon';
+      return {
+        from: function (t) { return builder(project, t); },
+        rpc: function (n, a) { return rpc(project, n, a); },
+        auth: auth(project),
+        __project: project
+      };
     }
   };
+  window.__fakeSupabaseLib = lib;
+  if (!window.__FAKE_ESM) window.supabase = lib;
 })();

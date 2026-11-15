@@ -247,8 +247,15 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 
 <!-- Supabase v2 global -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- GenieSphere trip store (Phase 2): picks the backend; Salon Genie unless ?db=gs was used -->
+<script src="js/vg-trip-store.js"></script>
 <script>
   (function(){
+    if (window.VGTripStore && window.VGTripStore.backend() === 'gs') {
+      window.__vg_sb = window.VGTripStore.getClient();
+      window.__vg_gs = true;
+      return;
+    }
     const URL = 'https://pbojacnagutipfhcxltj.supabase.co';
     const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBib2phY25hZ3V0aXBmaGN4bHRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwMDkwODAsImV4cCI6MjA2MzU4NTA4MH0.ZLCcAzTYljoZycpBGwMtthP5VyAJ4schuIvt4HibGc0';
     if (!window.__vg_sb && window.supabase?.createClient) {
@@ -431,8 +438,13 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
   //
   // Written as "create only if absent" rather than a blind insert so it is
   // safe to run on every OAuth return, including repeat sign-ins.
-  async function ensureProfile(user) {
+  async function ensureProfile(user, fullName) {
     if (!user || !vg) return;
+    if (window.__vg_gs) {
+      try { await window.VGTripStore.ensureProfile(vg, user, fullName); } catch (e) { console.warn('[register] profile:', e.message); }
+      try { await window.VGTripStore.claimLegacy(vg); } catch (e) { console.warn('[register] claim:', e.message); }
+      return;
+    }
     try {
       const { data: existing, error: readErr } = await vg
         .from('user_preferences')
@@ -645,7 +657,15 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
     showSuccess('Creating your account…');
 
     // ── Supabase sign-up ──
-    const { data, error: signUpError } = await vg.auth.signUp({ email, password });
+    // GenieSphere: keep the name with the account (the profile row is written
+    // at first sign-in if confirmation is required) and send the confirmation
+    // link back to login, which finishes the setup.
+    const signUpOptions = window.__vg_gs
+      ? { data: { full_name: fullName },
+          emailRedirectTo: location.origin + location.pathname.replace(/register\.html$/, 'login.html') +
+                           (nextTarget && nextTarget !== 'index.html' ? '?next=' + encodeURIComponent(nextTarget) : '') }
+      : undefined;
+    const { data, error: signUpError } = await vg.auth.signUp(signUpOptions ? { email, password, options: signUpOptions } : { email, password });
 
     if (signUpError) {
       setLoading(false);
@@ -662,7 +682,9 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
 
     // ── Insert user profile ──
     const user = data?.user;
-    if (user) {
+    if (user && window.__vg_gs) {
+      if (data?.session) await ensureProfile(user, fullName);
+    } else if (user) {
       await vg.from('user_preferences').insert({
         user_id:       user.id,
         full_name:     fullName,

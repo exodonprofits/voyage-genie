@@ -18,21 +18,40 @@
   var GS_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im54Z3RlZmJxaXp2aWh3aWtxbmF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM5NzM5NjIsImV4cCI6MjEwOTU0OTk2Mn0.mHDoeUzaWn0tFF_wbNw9rAZhPDtAB6VAU07hfkXgApk';
   var DEFAULT_BACKEND = 'salon';
 
+  // ?db=gs / ?db=salon picks a backend and is remembered in this browser, so a
+  // tester can move between login, dashboard and tracker; ?db=salon forgets it.
+  var BACKEND_KEY = 'vg-db';
   function backend() {
     try {
       var q = new URLSearchParams(global.location.search).get('db');
-      if (q === 'gs' || q === 'salon') return q;
-    } catch (e) { /* not in a browser */ }
+      if (q === 'gs') { global.localStorage.setItem(BACKEND_KEY, 'gs'); return 'gs'; }
+      if (q === 'salon') { global.localStorage.removeItem(BACKEND_KEY); return 'salon'; }
+      if (global.localStorage.getItem(BACKEND_KEY) === 'gs') return 'gs';
+    } catch (e) { /* not in a browser, or storage blocked */ }
     return DEFAULT_BACKEND;
   }
 
+  // One shared GenieSphere client per page. Pages that load supabase-js as a
+  // module pass their createClient; others use the global supabase-js.
   var client = null;
-  function getClient() {
+  function getClient(createClientFn) {
     if (client) return client;
-    var lib = global.supabase;
-    if (!lib || typeof lib.createClient !== 'function') return null;
-    client = lib.createClient(GS_URL, GS_ANON_KEY, { auth: { storageKey: 'vg-geniesphere-auth' } });
+    var make = createClientFn || (global.supabase && global.supabase.createClient);
+    if (typeof make !== 'function') return null;
+    client = make(GS_URL, GS_ANON_KEY, { auth: { storageKey: 'vg-geniesphere-auth' } });
     return client;
+  }
+
+  // Create the vg_profiles row on first sign-in (create-only, safe to repeat).
+  async function ensureProfile(sb, user, fullName) {
+    if (!user) return;
+    var have = await sb.from('vg_profiles').select('user_id').eq('user_id', user.id).maybeSingle();
+    if (have.error) throw fail('Checking profile', have.error);
+    if (have.data) return;
+    var meta = user.user_metadata || {};
+    var name = String(fullName || meta.full_name || meta.name || String(user.email || '').split('@')[0] || '').trim().slice(0, 120);
+    var ins = await sb.from('vg_profiles').insert({ user_id: user.id, full_name: name || null, created_via: 'voyagegenie.com' });
+    if (ins.error && !/duplicate/i.test(ins.error.message || '')) throw fail('Creating profile', ins.error);
   }
 
   // ── conversions ────────────────────────────────────────────────
@@ -436,6 +455,7 @@
   global.VGTripStore = {
     backend: backend,
     getClient: getClient,
+    ensureProfile: ensureProfile,
     rowsToState: rowsToState,
     planMembers: planMembers,
     planRest: planRest,

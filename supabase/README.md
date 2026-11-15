@@ -49,9 +49,11 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
   "that's me" action so the owner can merge into their person in the split (e.g. "Jimmy").
 - **2026-11-15:** migration 005 (`vg_link_me_and_perf`) applied: "that's me" RPC, `(select auth.uid())` in
   policies, indexes on every foreign key. Rolled-back check in GenieSphere: linking the owner to "Jimmy" works.
-- **Step 2 built, dark:** the tracker uses GenieSphere only with `?db=gs` (see `js/vg-trip-store.js`).
-- **Not done yet:** cutover (flip `DEFAULT_BACKEND`, switch login/register/dashboard, re-import trips edited
-  on the live site since the import).
+- **Step 2 built, dark:** tracker, trip dashboard, login and register use GenieSphere only after `?db=gs`
+  (remembered per browser; `?db=salon` turns it off). See `js/vg-trip-store.js`.
+- **Not done yet (cutover):** flip `DEFAULT_BACKEND`; switch the other ~30 pages' header sign-in and the planners'
+  plan/search saves to GenieSphere; enable Google sign-in and custom SMTP in GenieSphere; add the site to its
+  Auth redirect URLs; re-import trips edited on the live site since the import.
 - **Known advisor notes, to fold into the next migration:** wrap `auth.uid()` as `(select auth.uid())` in policies,
   and index the remaining foreign keys. Both are performance-only and don't matter at current size.
 
