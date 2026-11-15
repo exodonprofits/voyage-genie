@@ -10,6 +10,7 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
 | `migrations/20261115000002_vg_rpcs.sql` | Invites, joining, self-service member updates, payment confirmation, share links |
 | `migrations/20261115000003_vg_legacy_import.sql` | Import from the old Salon Genie tables + `vg_claim_legacy()` |
 | `migrations/20261115000004_vg_trigger_grants.sql` | Trigger functions not callable through the API (advisor clean-up) |
+| `migrations/20261115000005_vg_link_me_and_perf.sql` | "That's me" for owners; policy and index performance fixes |
 | `legacy/export_from_salon_genie.sql` | Read-only export to run in **Salon Genie** |
 | `legacy/rows_for_balance_check.sql` | Read-only query to run in **GenieSphere** after the import |
 | `tests/run.sh` | Applies everything to a throwaway local PostgreSQL and runs `vg_rls_test.sql` (71 checks) |
@@ -46,7 +47,11 @@ household app. Every Voyage table and function starts with `vg_`. Nothing here i
 - **Follow-up for step 2:** on the 8 attached trips the owner was added as a separate organizer
   (`in_split = false`, named from the email) because no `vg_profiles` name existed yet. Step 2 needs a
   "that's me" action so the owner can merge into their person in the split (e.g. "Jimmy").
-- **Not done yet:** switching the site over (Phase 2 step 2).
+- **2026-11-15:** migration 005 (`vg_link_me_and_perf`) applied: "that's me" RPC, `(select auth.uid())` in
+  policies, indexes on every foreign key. Rolled-back check in GenieSphere: linking the owner to "Jimmy" works.
+- **Step 2 built, dark:** the tracker uses GenieSphere only with `?db=gs` (see `js/vg-trip-store.js`).
+- **Not done yet:** cutover (flip `DEFAULT_BACKEND`, switch login/register/dashboard, re-import trips edited
+  on the live site since the import).
 - **Known advisor notes, to fold into the next migration:** wrap `auth.uid()` as `(select auth.uid())` in policies,
   and index the remaining foreign keys. Both are performance-only and don't matter at current size.
 

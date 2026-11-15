@@ -12,6 +12,8 @@
 
   <!-- Supabase JS v2 (global) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- GenieSphere trip store (Phase 2). Inactive unless ?db=gs or its default is switched. -->
+  <script src="js/vg-trip-store.js"></script>
 
   <style>
     :root{
@@ -1343,6 +1345,15 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
     let currentTripId = null;
     let currentUser = null;
     let tripOwnerId = null;
+
+    /* ===== GenieSphere backend (Phase 2) =====
+       Off unless the URL has ?db=gs (or js/vg-trip-store.js switches its
+       default). When on, trips load and save through the vg_ tables instead
+       of the old Salon Genie `trips` blob; the maths and UI are unchanged. */
+    const VG_STORE = window.VGTripStore || null;
+    const gs = (VG_STORE && VG_STORE.backend() === "gs") ? VG_STORE.getClient() : null;
+    let gsTrip = null;                    // { state, snapshot, me, role } of the loaded trip
+    const authClient = () => gs || sb;
 
     // picker modal state
     let pickerIndex = -1;
@@ -3588,11 +3599,121 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
 </html>`;
     }
 
+    /* ===== Cloud: GenieSphere (used when gs is on) ===== */
+    function gsApplyState(state){
+      tripTitle = state.tripTitle || "";
+      people = state.people; expenses = state.expenses;
+      settlementMeta = normalizeSettlementMeta(state.settlementMeta); sponsorRules = state.sponsorRules;
+      $("tripTitle").value = tripTitle;
+      const tn = document.getElementById("tripName"); if(tn) tn.value = state.tripName || ((tripTitle||"").split(" – ")[0]||"");
+      const ts = document.getElementById("tripStart"); if(ts) ts.value = state.tripStart || "";
+      const te = document.getElementById("tripEnd"); if(te) te.value = state.tripEnd || "";
+      syncTripTitleHidden();
+      renderPeople(); renderExpenses(); renderSponsorRules(); recalc();
+    }
+    function gsCurrentState(){
+      return {
+        tripTitle: $("tripTitle").value || "",
+        tripName: (document.getElementById("tripName")||{}).value || "",
+        tripStart: (document.getElementById("tripStart")||{}).value || "",
+        tripEnd: (document.getElementById("tripEnd")||{}).value || "",
+        people, expenses, settlementMeta: normalizeSettlementMeta(settlementMeta), sponsorRules
+      };
+    }
+
+    // "That's me": the trip owner starts as an organizer outside the split and
+    // links their account to their person (e.g. "Jimmy") once.
+    function gsShowLinkMe(){
+      const old = document.getElementById("gsLinkMe"); if(old) old.remove();
+      if(!gsTrip || !gsTrip.me || gsTrip.me.in_split !== false || !people.length) return;
+      let dismissed = false;
+      try{ dismissed = localStorage.getItem("vg-linkme-skip-" + currentTripId) === "1"; }catch(e){}
+      if(dismissed) return;
+      const box = document.createElement("div");
+      box.id = "gsLinkMe";
+      box.style.cssText = "border:1px solid #bae6fd;background:#f0f9ff;border-radius:8px;padding:.6rem .75rem;margin-top:.6rem;font-size:.88rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center";
+      const label = document.createElement("span");
+      label.textContent = "Which person on this trip is you?";
+      const sel = document.createElement("select");
+      sel.className = "vg-input"; sel.style.maxWidth = "220px";
+      people.forEach(p=>{ const o = document.createElement("option"); o.value = p._mid || ""; o.textContent = p.name; sel.appendChild(o); });
+      const yes = document.createElement("button");
+      yes.type = "button"; yes.className = "vg-btn vg-btn-primary"; yes.textContent = "That's me";
+      yes.addEventListener("click", async ()=>{
+        if(!sel.value) return;
+        yes.disabled = true;
+        try{ await VG_STORE.linkMe(gs, currentTripId, sel.value); await gsLoadFromCloud(); showToast("Linked to " + sel.options[sel.selectedIndex].text + " ✅"); }
+        catch(e){ alert(e.message); yes.disabled = false; }
+      });
+      const skip = document.createElement("button");
+      skip.type = "button"; skip.className = "vg-btn"; skip.textContent = "I'm just organizing";
+      skip.addEventListener("click", ()=>{ try{ localStorage.setItem("vg-linkme-skip-" + currentTripId, "1"); }catch(e){} box.remove(); });
+      box.appendChild(label); box.appendChild(sel); box.appendChild(yes); box.appendChild(skip);
+      $("cloudStatus").after(box);
+    }
+
+    async function gsLoadFromCloud(){
+      const id = new URLSearchParams(location.search).get("trip_id"); if(!id) return false;
+      const { data:{ user } } = await gs.auth.getUser();
+      if(!user){ $("cloudStatus").textContent = "Sign in to open this trip."; openAuth(); return false; }
+      try{
+        await VG_STORE.claimLegacy(gs);            // picks up trips imported under this email, once
+        const t = await VG_STORE.loadTrip(gs, id);
+        if(!t){ alert("Trip not found, or you're not on it.\n\nSign in with the email the trip belongs to."); return false; }
+        gsTrip = t; currentTripId = id; tripOwnerId = null;
+        gsApplyState(t.state);
+        if(t.role !== "owner"){
+          applySharedReadOnlyUI(t.role ? "You're on this trip (view only for now)." : "Viewing this trip (read-only).");
+        } else {
+          $("cloudStatus").textContent = "Loaded";
+          gsShowLinkMe();
+        }
+        return true;
+      }catch(e){ console.error("[gs] load failed", e); alert("Couldn't load this trip.\n\n" + e.message); return false; }
+    }
+
+    async function gsSaveToCloud(){
+      if(__vg_shared_readonly){ alert("This is a read-only view. Only the trip owner can save changes for now."); return; }
+      const status = $("cloudStatus"); status.textContent = "Saving…";
+      const { data:{ user } } = await gs.auth.getUser();
+      if(!user){ status.textContent = "Please sign in to save."; openAuth(); return; }
+      try{
+        if(!gsTrip){
+          gsTrip = await VG_STORE.createTrip(gs, $("tripTitle").value || "");
+          currentTripId = gsTrip.snapshot.tripId;
+        }
+        if(gsTrip.role !== "owner"){ alert("Only the trip owner can save changes for now."); status.textContent = "Read-only."; return; }
+        const saved = await VG_STORE.saveTrip(gs, gsTrip.snapshot, gsCurrentState());
+        gsTrip = saved;
+        gsApplyState(saved.state);
+        gsShowLinkMe();
+      }catch(e){ console.error("[gs] save failed", e); status.textContent = "Save failed."; alert("❌ " + e.message); return; }
+      const link = buildLink(currentTripId);
+      try{ history.replaceState(null, "", link); }catch(e){}
+      try{ await navigator.clipboard.writeText(link); }catch(e){}
+      status.textContent = "Saved ✅ (link copied)";
+      showToast("Trip saved successfully ✅");
+      setLastSaved();
+    }
+
+    async function gsCreateShareLink(asReport){
+      if(!gsTrip){ alert("No saved trip yet. Click Save Trip first."); return null; }
+      try{
+        const token = await VG_STORE.createShare(gs, gsTrip.snapshot.tripId, 48);
+        const u = new URL(location.origin + location.pathname);
+        u.searchParams.set("db", "gs");
+        u.searchParams.set("share", token);
+        if(asReport) u.searchParams.set("report", "1");
+        return { url: u.toString(), expiresAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString() };
+      }catch(e){ alert("Share link failed: " + e.message); return null; }
+    }
+
     /* ===== Cloud: Supabase save/load/auth ===== */
     function payload(){
       return { name: $("tripTitle").value || "", form_data: { people, expenses, settlementMeta: normalizeSettlementMeta(settlementMeta), sponsorRules, tripTitle: $("tripTitle").value || "", tripName: (document.getElementById("tripName")?.value||""), tripStart: (document.getElementById("tripStart")?.value||""), tripEnd: (document.getElementById("tripEnd")?.value||"") } };
     }
     async function saveToCloud(){
+      if(gs) return gsSaveToCloud();
       if(__vg_shared_readonly){ alert("This is a shared view (read-only). Ask the trip owner to save changes."); return; }
       const status=$("cloudStatus"); status.textContent="Saving…";
       const { data:{ user } } = await sb.auth.getUser();
@@ -3652,6 +3773,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
     // asReport=true -> recipient lands directly on the polished, read-only Full Report
     // asReport=false -> recipient gets the interactive (but locked) tracker UI
     async function createPublicShareLink(asReport){
+      if(gs) return gsCreateShareLink(asReport);
       if(!currentTripId){ alert("No saved trip yet. Click Save Trip first."); return null; }
 
       // Share links are created by the trip owner (requires sign-in) —
@@ -3729,6 +3851,17 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       const token = new URLSearchParams(location.search).get("share");
       if(!token) return false;
 
+      if(gs){
+        let shared = null;
+        try{ shared = await VG_STORE.loadShared(gs, token); }
+        catch(e){ console.error("[gs] share failed", e); alert("Couldn't open this shared trip.\n\n" + e.message); return false; }
+        if(!shared){ alert("This share link has expired or has been revoked.\n\nAsk the trip owner for a fresh link — they last for 48 hours."); return false; }
+        gsApplyState(shared.state);
+        applySharedReadOnlyUI("Viewing shared trip (read‑only). Link expires automatically.");
+        if(new URLSearchParams(location.search).get("report") === "1"){ renderReportInline(); return "report"; }
+        return true;
+      }
+
       const { data, error } = await sb.rpc('get_public_shared_trip', { p_token: token });
 
       /* Distinguish "the link is genuinely dead" from "the call failed".
@@ -3778,6 +3911,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
     }
 
 async function loadFromCloudIfAny(){
+      if(gs) return gsLoadFromCloud();
       const id=new URLSearchParams(location.search).get("trip_id"); if(!id) return false;
       const { data, error } = await sb.from("trips").select("id,name,form_data,owner_id").eq("id", id).single();
       if(error||!data){ alert("Trip not found or not accessible."); return false; }
@@ -3820,7 +3954,7 @@ async function loadFromCloudIfAny(){
       if(!email){ note.textContent="Please enter an email."; return; }
       note.textContent="Sending link…";
       const redirectTo = getRedirectURL();
-      const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
+      const { error } = await authClient().auth.signInWithOtp({ email, options:{ emailRedirectTo: redirectTo } });
       if(error){ note.textContent="Failed: "+error.message; return; }
       note.textContent="Check your email for the sign-in link.";
     }
@@ -3931,7 +4065,7 @@ async function loadFromCloudIfAny(){
         addExpenseRow();
       }
 
-      const { data:{ session } } = await sb.auth.getSession();
+      const { data:{ session } } = await authClient().auth.getSession();
       currentUser = session?.user || null;
       updateAuthPills();
 

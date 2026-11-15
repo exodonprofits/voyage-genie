@@ -17,6 +17,7 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 
 ## Backend
 - Supabase: moving from the Salon Genie project (`pbojacnagutipfhcxltj`, current pages) to **GenieSphere** (`nxgtefbqizvihwikqnaw`, all new work). Only the anon key goes in frontend code.
+- The cost tracker talks to GenieSphere only through `js/vg-trip-store.js`. Its `DEFAULT_BACKEND` stays `'salon'` until cutover; `?db=gs` on a tracker URL uses GenieSphere for testing.
 - Voyage tables/functions are prefixed `vg_`. Schema changes go in `supabase/migrations/` and must pass `bash supabase/tests/run.sh` before being run in GenieSphere. Never commit exported data.
 - AI calls go through n8n webhooks: `https://exodonprofits.app.n8n.cloud/webhook/<name>`. Never call OpenAI from the browser.
 - n8n workflow exports live in `/workflows`, which must never be served publicly.
@@ -28,6 +29,9 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 
 ## Before finishing any change
 1. `python3 tools/check-site.py` (script syntax, HTML structure, CSS braces, missing links). Deploys are blocked if it fails.
+   - Touching the cost tracker or `js/vg-trip-store.js`: also `node tools/tests/vg-trip-store.test.cjs` and
+     `node tools/tests/tracker-gs.e2e.cjs` (the tracker against a fake GenieSphere, incl. balances to the cent).
+   - Touching `supabase/`: `bash supabase/tests/run.sh`.
 2. `python3 -m http.server`, then click through every touched page with Playwright and check for console errors.
 
 ## Deploy
