@@ -717,6 +717,15 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
   }
   function stopLoading(){ clearInterval(loadTimer); loadTimer = null; }
 
+  // The webhook's reply as an object: accepts plain JSON, or JSON that was encoded twice (a string).
+  function parseReply(raw){
+    var v = null;
+    try { v = JSON.parse(raw); } catch (_) { return null; }
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { return null; } }
+    if (Array.isArray(v) && v.length === 1 && v[0] && typeof v[0] === 'object') v = v[0];   // n8n "all items" mode
+    return v && typeof v === 'object' ? v : null;
+  }
+
   function renderError(msg){
     stopLoading();
     empty.style.display = 'none';
@@ -841,10 +850,26 @@ footer { background: linear-gradient(105deg, #023e8a 0%, #0077b6 100%); color: r
         body: JSON.stringify(d),
         signal: ctrl.signal
       });
-      var data = null;
-      try { data = await res.json(); } catch (_) {}
-      if (!res.ok && !(data && data.error)) throw new Error('HTTP ' + res.status);
-      if (!data || data.ok !== true) { renderError((data && data.error) || 'Genie couldn’t find trips this time. Try widening your window or budget.'); return; }
+      var raw = '';
+      try { raw = await res.text(); } catch (_) {}
+      var data = parseReply(raw);
+      if (data && data.detail) console.warn('[VG trip-finder] detail:', data.detail);
+      if (data && data.ok === false && data.error) { renderError(String(data.error)); return; }
+      if (!res.ok) {
+        console.warn('[VG trip-finder] HTTP ' + res.status + ' reply:', raw.slice(0, 2000));
+        renderError('Genie hit a problem on our side (error ' + res.status + '). Please try again in a minute.');
+        return;
+      }
+      if (!data || data.ok !== true) {
+        // n8n answered, but not with { ok, results }. Usually the workflow's Webhook node isn't set to
+        // respond via the "Respond to Webhook" node, or the run ended without reaching one.
+        console.warn('[VG trip-finder] unexpected reply (HTTP ' + res.status + '):', raw ? raw.slice(0, 2000) : '(empty body)');
+        var started = data && /workflow was started/i.test(String(data.message || ''));
+        renderError(started
+          ? 'Genie started your search but didn’t send the results back (code: responded-early). We’re on it. Please try again later.'
+          : 'Genie sent an answer we couldn’t read (code: ' + (raw ? 'bad-reply' : 'empty-reply') + '). Please try again in a minute.');
+        return;
+      }
       if (!Array.isArray(data.results) || !data.results.length) { renderError('No matches for those criteria — try widening your dates, budget or regions.'); return; }
 
       state.results = data.results;
