@@ -101,7 +101,8 @@
 
     var people = members.filter(function (m) { return m.in_split !== false; }).map(function (m) {
       var payerName = m.payer_member_id ? nameOf(m.payer_member_id) : null;
-      return { name: m.display_name, payer: payerName || m.display_name, size: Math.max(1, Number(m.household_size) || 1), _mid: m.id };
+      return { name: m.display_name, payer: payerName || m.display_name, size: Math.max(1, Number(m.household_size) || 1), _mid: m.id,
+               _joined: !!m.user_id || m.joined === true };
     });
 
     var expenses = sortExpenses(rows.expenses || []).map(function (e) {
@@ -118,7 +119,8 @@
         paidBy: nameOf(e.paid_by_member_id) || '',
         amount: Number(e.amount) || 0,
         included: included,
-        _id: e.id
+        _id: e.id,
+        _by: e.created_by || null
       };
       if (e.kind === 'budget_transfer') ex.kind = 'budget_transfer';
       return ex;
@@ -155,6 +157,7 @@
               settings: JSON.stringify(settings) },
       members: {},
       expenses: {},
+      expenseBy: {},
       pairs: {}
     };
     members.forEach(function (m) {
@@ -162,6 +165,7 @@
                                  payer: m.payer_member_id || null, in_split: m.in_split !== false };
     });
     (rows.expenses || []).forEach(function (e) {
+      snapshot.expenseBy[e.id] = e.created_by || null;
       snapshot.expenses[e.id] = expenseKey({ kind: e.kind || 'expense', paid_by_member_id: e.paid_by_member_id,
         amount: cents(e.amount), spent_on: e.spent_on || null, category: e.category || null,
         description: e.description || null, split: e.split || {} });
@@ -342,6 +346,7 @@
     var out = rowsToState({ trip: t.data, members: m.data, expenses: e.data, settlements: s.data });
     out.me = me;
     out.role = me ? me.role : null;
+    out.userId = user ? user.id : null;
     return out;
   }
 
@@ -438,6 +443,55 @@
     return loadTrip(sb, tripId);
   }
 
+  // A member (editor) saves: only expenses. They add any expense and change or remove
+  // the ones they added; people, trip details and payments stay with the owner, so
+  // changes there are not written. The database enforces the same rules.
+  async function saveTripAsMember(sb, snapshot, state, userId) {
+    var tripId = snapshot.tripId;
+    var byName = {};
+    Object.keys(snapshot.members).forEach(function (id) { byName[snapshot.members[id].name] = id; });
+    var rest = planRest(snapshot, state, { byName: byName });
+    if (rest.errors.length) throw new Error(rest.errors.join('\n'));
+    var notMine = rest.expUpdates.map(function (u) { return u.id; }).concat(rest.expDeletes)
+      .filter(function (id) { return snapshot.expenseBy[id] !== userId; });
+    if (notMine.length) {
+      throw new Error('You can only change or remove expenses you added. Reload the trip to undo changes to other people\'s expenses.');
+    }
+    for (var d = 0; d < rest.expUpdates.length; d++) {
+      var eu = rest.expUpdates[d];
+      var r1 = await sb.from('vg_trip_expenses').update(eu.row).eq('id', eu.id);
+      if (r1.error) throw fail('Saving an expense', r1.error);
+    }
+    for (var g = 0; g < rest.expInserts.length; g++) {
+      var x = rest.expInserts[g];
+      var r2 = await sb.from('vg_trip_expenses').insert(Object.assign({ trip_id: tripId }, x.row)).select('id').single();
+      if (r2.error) throw fail('Adding expenses', r2.error);
+      x.expense._id = r2.data.id;
+    }
+    if (rest.expDeletes.length) {
+      var r3 = await sb.from('vg_trip_expenses').delete().in('id', rest.expDeletes);
+      if (r3.error) throw fail('Removing expenses', r3.error);
+    }
+    return loadTrip(sb, tripId);
+  }
+
+  // Invites: the owner makes a link; anyone signed in can preview and accept it.
+  async function createInvite(sb, tripId, role, hours) {
+    var r = await sb.rpc('vg_create_invite', { p_trip: tripId, p_role: role === 'viewer' ? 'viewer' : 'editor', p_hours: hours || 336 });
+    if (r.error) throw fail('Creating invite', r.error);
+    return r.data;
+  }
+  async function invitePreview(sb, token) {
+    var r = await sb.rpc('vg_invite_preview', { p_token: token });
+    if (r.error) throw fail('Opening invite', r.error);
+    return r.data;   // null when expired or used up
+  }
+  async function acceptInvite(sb, token, claimMemberId, displayName) {
+    var r = await sb.rpc('vg_accept_invite', { p_token: token, p_claim_member: claimMemberId || null, p_display_name: displayName || null });
+    if (r.error) throw fail('Joining trip', r.error);
+    return r.data;   // the trip id
+  }
+
   async function linkMe(sb, tripId, memberId) {
     var r = await sb.rpc('vg_link_me', { p_trip: tripId, p_member: memberId });
     if (r.error) throw fail('Linking you', r.error);
@@ -519,6 +573,10 @@
     createTrip: createTrip,
     saveTrip: saveTrip,
     linkMe: linkMe,
+    saveTripAsMember: saveTripAsMember,
+    createInvite: createInvite,
+    invitePreview: invitePreview,
+    acceptInvite: acceptInvite,
     claimLegacy: claimLegacy,
     createShare: createShare,
     loadShared: loadShared

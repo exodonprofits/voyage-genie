@@ -92,6 +92,7 @@
             if (db.vg_trip_members.some(function (m) { return m.trip_id === row.trip_id && m.display_name.toLowerCase() === row.display_name.toLowerCase(); }))
               throw new Error('duplicate key value violates unique constraint "vg_trip_members_name_uq"');
           }
+          if (table === 'vg_trip_expenses') { row.created_by = user(project); }
           if (table === 'vg_trip_settlements') { row.marked_at = now(); row.marked_by = user(project); row.confirmed_at = null; }
           if (table === 'vg_trips') { row.settings = row.settings || {}; row.start_date = row.start_date || null; row.end_date = row.end_date || null; }
           rows.push(row);
@@ -145,6 +146,34 @@
         var ns = db.vg_search_history.length; db.vg_search_history = db.vg_search_history.filter(function (x) { return x.user_id !== me; });
         db.vg_profiles = db.vg_profiles.filter(function (x) { return x.user_id !== me; });
         r.data = { trips: mineTrips.length, plans: np - db.vg_plans.length, searches: ns - db.vg_search_history.length, left_trips: 0 };
+      }
+    } else if (name === 'vg_create_invite') {
+      var owns = db.vg_trips.some(function (t) { return t.id === args.p_trip && t.owner_id === me; });
+      if (!owns) r.error = { message: 'Only the trip owner can invite people' };
+      else { var it = 'inv' + uid().replace(/-/g, ''); db.invites = db.invites || {}; db.invites[it] = { trip_id: args.p_trip, role: args.p_role || 'editor' }; r.data = it; }
+    } else if (name === 'vg_invite_preview') {
+      var inv = (db.invites || {})[args.p_token];
+      if (inv) {
+        var trp = db.vg_trips.find(function (t) { return t.id === inv.trip_id; });
+        var ms = db.vg_trip_members.filter(function (m) { return m.trip_id === inv.trip_id; });
+        r.data = { trip: { name: trp.name }, role: inv.role,
+                   organizer: (ms.find(function (m) { return m.role === 'owner'; }) || {}).display_name,
+                   unclaimed: ms.filter(function (m) { return !m.user_id; }).map(function (m) { return { id: m.id, display_name: m.display_name }; }),
+                   already_member: ms.some(function (m) { return m.user_id === me; }) };
+      }
+    } else if (name === 'vg_accept_invite') {
+      var inv2 = (db.invites || {})[args.p_token];
+      if (!me) r.error = { message: 'Sign in to join this trip' };
+      else if (!inv2) r.error = { message: 'This invite link has expired or is no longer valid' };
+      else if (db.vg_trip_members.some(function (m) { return m.trip_id === inv2.trip_id && m.user_id === me; })) r.data = inv2.trip_id;
+      else if (args.p_claim_member) {
+        var cm = db.vg_trip_members.find(function (m) { return m.id === args.p_claim_member && m.trip_id === inv2.trip_id && !m.user_id; });
+        if (!cm) r.error = { message: 'That person has already joined or isn\'t on this trip' };
+        else { cm.user_id = me; cm.role = inv2.role; r.data = inv2.trip_id; }
+      } else {
+        db.vg_trip_members.push({ id: uid(), created_at: now(), trip_id: inv2.trip_id, user_id: me, display_name: args.p_display_name,
+          role: inv2.role, in_split: true, household_size: 1, payer_member_id: null, pay_handles: {} });
+        r.data = inv2.trip_id;
       }
     } else if (name === 'vg_link_me') {
       var mine = db.vg_trip_members.find(function (m) { return m.trip_id === args.p_trip && m.user_id === me; });

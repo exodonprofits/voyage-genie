@@ -151,6 +151,19 @@
     }
     .menu .menu-divider{ height:1px; background:#e5e7eb; margin:6px 4px; border-radius:7px; }
     .menu a:hover, .plan-menu a:hover{ background:#f3f4f6; color:#4c6ef5; }
+    /* Members (not the owner) add expenses; people, trip details and payments stay with the owner */
+    body.vg-member-mode #panel-people :is(input,button,select),
+    body.vg-member-mode #panel-settlements :is(input,button,select),
+    body.vg-member-mode #sharedPotDetails :is(input,button,select),
+    body.vg-member-mode #tripName, body.vg-member-mode #tripStart, body.vg-member-mode #tripEnd,
+    body.vg-member-mode #assignPayersBtn { pointer-events:none; opacity:.5; }
+    tr.row-locked td { background:#f8fafc; }
+    tr.row-locked :is(input,select,button) { opacity:.6; }
+    .gs-panel { border:1px solid #bae6fd; background:#f0f9ff; border-radius:10px; padding:.85rem 1rem; margin-top:.75rem; font-size:.92rem; }
+    .gs-panel h3 { font-size:1.05rem; font-weight:700; margin-bottom:.35rem; }
+    .gs-panel .gs-row { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:.5rem; }
+    .gs-panel label.gs-choice { display:flex; gap:.45rem; align-items:center; padding:.3rem 0; cursor:pointer; }
+    .gs-joined { font-size:.82rem; color:#475569; margin-top:.5rem; }
     @media (max-width:860px){
       .vg-nav{flex-wrap:nowrap;}
       .vg-left{min-width:0; flex:1 1 auto;}
@@ -627,6 +640,7 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
           <input id="tripName" class="vg-input flex-1-field" placeholder="Trip name (e.g., Hawaii Family Vacation)" />
           <div class="btn-row">
             <button class="vg-btn vg-btn-blue" onclick="saveToCloud()">☁️ Save Trip</button>
+            <button class="vg-btn" id="gsInviteBtn" type="button" style="display:none">👋 Invite people</button>
           </div>
         </div>
 
@@ -2086,6 +2100,11 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
         tdDel.appendChild(b); tr.appendChild(tdDel);
 
         if(expenseIssues(ex, nlist).length) tr.classList.add("needs-attention");
+        if(typeof gsRowLocked === "function" && gsRowLocked(ex)){
+          tr.classList.add("row-locked");
+          tr.title = "Added by someone else. Only they or the trip owner can change it.";
+          tr.querySelectorAll("input,select,button").forEach(el=>{ el.disabled = true; });
+        }
         body.appendChild(tr);
       });
       // Belt-and-suspenders: force-set amount values after all rows are in DOM
@@ -3667,12 +3686,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
           const u = new URL(location.href); u.searchParams.set("trip_id", currentTripId); history.replaceState(null, "", u.toString());
         }
         gsApplyState(t.state);
-        if(t.role !== "owner"){
-          applySharedReadOnlyUI(t.role ? "You're on this trip (view only for now)." : "Viewing this trip (read-only).");
-        } else {
-          $("cloudStatus").textContent = "Loaded";
-          gsShowLinkMe();
-        }
+        gsAfterLoad();
         return true;
       }catch(e){ console.error("[gs] load failed", e); alert("Couldn't load this trip.\n\n" + e.message); return false; }
     }
@@ -3687,11 +3701,13 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
           gsTrip = await VG_STORE.createTrip(gs, $("tripTitle").value || "");
           currentTripId = gsTrip.snapshot.tripId;
         }
-        if(gsTrip.role !== "owner"){ alert("Only the trip owner can save changes for now."); status.textContent = "Read-only."; return; }
-        const saved = await VG_STORE.saveTrip(gs, gsTrip.snapshot, gsCurrentState());
+        let saved;
+        if(gsTrip.role === "owner") saved = await VG_STORE.saveTrip(gs, gsTrip.snapshot, gsCurrentState());
+        else if(gsTrip.role === "editor") saved = await VG_STORE.saveTripAsMember(gs, gsTrip.snapshot, gsCurrentState(), gsTrip.userId);
+        else { alert("You can view this trip but not change it."); status.textContent = "Read-only."; return; }
         gsTrip = saved;
         gsApplyState(saved.state);
-        gsShowLinkMe();
+        gsAfterLoad(true);
       }catch(e){ console.error("[gs] save failed", e); status.textContent = "Save failed."; alert("❌ " + e.message); return; }
       const link = buildLink(currentTripId);
       try{ history.replaceState(null, "", link); }catch(e){}
@@ -3700,6 +3716,149 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       showToast("Trip saved successfully ✅");
       setLastSaved();
     }
+
+    /* ===== Invites and members (GenieSphere) ===== */
+    // A member (editor) can change only the expenses they added.
+    function gsRowLocked(ex){
+      return !!(gs && gsTrip && gsTrip.role === "editor" && ex && ex._id && ex._by !== gsTrip.userId);
+    }
+    function gsEl(tag, props, kids){
+      const n = document.createElement(tag);
+      Object.keys(props || {}).forEach(k=>{ if(k === "text") n.textContent = props[k]; else if(k === "style") n.style.cssText = props[k]; else n[k] = props[k]; });
+      (kids || []).forEach(c=>{ if(c) n.appendChild(c); });
+      return n;
+    }
+    // After loading or saving: show the right controls for this person's role.
+    function gsAfterLoad(justSaved){
+      window.__gsUnsaved = false;
+      const role = gsTrip ? gsTrip.role : null;
+      document.body.classList.toggle("vg-member-mode", role === "editor");
+      const inv = document.getElementById("gsInviteBtn");
+      if(inv) inv.style.display = role === "owner" ? "" : "none";
+      if(role === "owner"){
+        if(!justSaved) $("cloudStatus").textContent = "Loaded";
+        gsShowLinkMe();
+      } else if(role === "editor"){
+        if(!justSaved) $("cloudStatus").textContent = "You're on this trip: add expenses, and edit the ones you added. People and payments are managed by the organizer.";
+      } else {
+        applySharedReadOnlyUI(role ? "You're on this trip (view only)." : "Viewing this trip (read-only).");
+      }
+      gsShowJoined();
+      renderExpenses(); recalc();
+    }
+    // Who has joined with an account, and who is still just a name.
+    function gsShowJoined(){
+      let line = document.getElementById("gsJoined");
+      if(!gsTrip || !people.length){ if(line) line.remove(); return; }
+      const joined = people.filter(p=>p._joined).map(p=>p.name);
+      const waiting = people.filter(p=>!p._joined).map(p=>p.name);
+      if(!line){ line = gsEl("div", { id:"gsJoined", className:"gs-joined" }); $("peopleList").after(line); }
+      line.textContent = "Joined: " + (joined.length ? joined.join(", ") : "nobody yet") +
+                         (waiting.length ? " · Not joined yet: " + waiting.join(", ") : "");
+    }
+
+    // Owner: make an invite link (can add expenses, or view only), then copy or share it.
+    function gsOpenInvite(){
+      const old = document.getElementById("gsInvitePanel"); if(old){ old.remove(); return; }
+      if(!gsTrip || gsTrip.role !== "owner"){ alert("Save the trip first, then invite people."); return; }
+      const role = gsEl("select", { className:"vg-input", style:"max-width:240px" });
+      [["editor","Can add expenses"],["viewer","View only"]].forEach(([v,t])=>role.appendChild(gsEl("option", { value:v, text:t })));
+      const link = gsEl("input", { className:"vg-input", readOnly:true, placeholder:"Your invite link appears here", style:"flex:1;min-width:220px" });
+      const make = gsEl("button", { type:"button", className:"vg-btn vg-btn-blue", text:"Create invite link" });
+      const copy = gsEl("button", { type:"button", className:"vg-btn", text:"Copy", disabled:true });
+      const share = gsEl("button", { type:"button", className:"vg-btn", text:"Share…", disabled:true });
+      if(!navigator.share) share.style.display = "none";
+      make.addEventListener("click", async ()=>{
+        make.disabled = true; make.textContent = "Creating…";
+        try{
+          const token = await VG_STORE.createInvite(gs, gsTrip.snapshot.tripId, role.value, 336);
+          const u = new URL(location.origin + location.pathname); u.searchParams.set("join", token);
+          link.value = u.toString(); copy.disabled = false; share.disabled = false;
+          make.textContent = "Create another link";
+        }catch(e){ alert(e.message); make.textContent = "Create invite link"; }
+        make.disabled = false;
+      });
+      copy.addEventListener("click", async ()=>{ try{ await navigator.clipboard.writeText(link.value); showToast("Invite link copied ✅"); }catch(e){ link.select(); } });
+      share.addEventListener("click", ()=>{
+        navigator.share({ title: "Join " + ($("tripTitle").value || "our trip") + " on Voyage Genie", text: "Add your expenses to our trip:", url: link.value }).catch(()=>{});
+      });
+      const panel = gsEl("div", { id:"gsInvitePanel", className:"gs-panel" }, [
+        gsEl("h3", { text:"👋 Invite people to this trip" }),
+        gsEl("div", { text:"Anyone with the link can sign in and join. They pick their name from the trip (or add themselves), then add their own expenses. Links work for 14 days and up to 20 people." }),
+        gsEl("div", { className:"gs-row" }, [role, make]),
+        gsEl("div", { className:"gs-row" }, [link, copy, share])
+      ]);
+      $("cloudStatus").after(panel);
+    }
+
+    // ?join=TOKEN: sign in, pick who you are on the trip, join, then open the trip.
+    async function loadFromJoinIfAny(){
+      const token = new URLSearchParams(location.search).get("join");
+      if(!token || !gs) return false;
+      const panel = gsEl("div", { id:"gsJoinPanel", className:"gs-panel" });
+      $("cloudStatus").after(panel);
+      const here = "trip-cost-tracker.html?join=" + encodeURIComponent(token);
+      const { data:{ user } } = await gs.auth.getUser();
+      if(!user){
+        panel.appendChild(gsEl("h3", { text:"You're invited to a trip on Voyage Genie" }));
+        panel.appendChild(gsEl("div", { text:"Sign in or create a free account to join and add your expenses." }));
+        panel.appendChild(gsEl("div", { className:"gs-row" }, [
+          gsEl("a", { className:"vg-btn vg-btn-blue", href:"login.html?next=" + encodeURIComponent(here), text:"Sign in to join" }),
+          gsEl("a", { className:"vg-btn", href:"register.html?next=" + encodeURIComponent(here), text:"Create an account" })
+        ]));
+        return true;
+      }
+      let preview = null;
+      try{ preview = await VG_STORE.invitePreview(gs, token); }catch(e){ panel.textContent = e.message; return true; }
+      if(!preview){
+        panel.appendChild(gsEl("h3", { text:"This invite link has expired" }));
+        panel.appendChild(gsEl("div", { text:"Ask the trip organizer to send you a new link." }));
+        return true;
+      }
+      const open = (id)=>{ const u = new URL(location.origin + location.pathname); u.searchParams.set("trip_id", id); location.replace(u.toString()); };
+      if(preview.already_member){
+        try{ open(await VG_STORE.acceptInvite(gs, token)); }catch(e){ panel.textContent = e.message; }
+        return true;
+      }
+      const trip = preview.trip || {};
+      panel.appendChild(gsEl("h3", { text:"Join " + (trip.name || "this trip") }));
+      if(preview.organizer) panel.appendChild(gsEl("div", { text:"Organized by " + preview.organizer + (preview.role === "viewer" ? " · you'll be able to view the trip" : " · you'll be able to add expenses") }));
+      panel.appendChild(gsEl("div", { style:"margin-top:.6rem;font-weight:600", text:"Which one is you?" }));
+      const choices = gsEl("div");
+      (preview.unclaimed || []).forEach((m, i)=>{
+        const r = gsEl("input", { type:"radio", name:"gsJoinWho", value:m.id, checked:i === 0 });
+        choices.appendChild(gsEl("label", { className:"gs-choice" }, [r, gsEl("span", { text:m.display_name })]));
+      });
+      const newR = gsEl("input", { type:"radio", name:"gsJoinWho", value:"", checked:!(preview.unclaimed || []).length });
+      const newName = gsEl("input", { className:"vg-input", placeholder:"Your name", style:"max-width:220px" });
+      newName.addEventListener("focus", ()=>{ newR.checked = true; });
+      choices.appendChild(gsEl("label", { className:"gs-choice" }, [newR, gsEl("span", { text:"I'm not on the list:" }), newName]));
+      panel.appendChild(choices);
+      const go = gsEl("button", { type:"button", className:"vg-btn vg-btn-blue", text:"Join trip" });
+      go.addEventListener("click", async ()=>{
+        const picked = panel.querySelector('input[name="gsJoinWho"]:checked');
+        const claim = picked && picked.value ? picked.value : null;
+        const name = newName.value.trim();
+        if(!claim && !name){ alert("Pick your name, or type it in."); newName.focus(); return; }
+        go.disabled = true; go.textContent = "Joining…";
+        try{ open(await VG_STORE.acceptInvite(gs, token, claim, claim ? null : name)); }
+        catch(e){ alert(e.message); go.disabled = false; go.textContent = "Join trip"; }
+      });
+      panel.appendChild(gsEl("div", { className:"gs-row" }, [go]));
+      return true;
+    }
+
+    // Coming back to the tab: pick up what others added, unless you have unsaved changes.
+    document.addEventListener("visibilitychange", async ()=>{
+      if(document.hidden || !gs || !gsTrip || window.__gsUnsaved || __vg_shared_readonly) return;
+      try{
+        const t = await VG_STORE.loadTrip(gs, gsTrip.snapshot.tripId);
+        if(!t) return;
+        gsTrip = t; gsApplyState(t.state); gsAfterLoad(true);
+        $("cloudStatus").textContent = "Up to date";
+      }catch(e){ console.warn("[gs] refresh failed", e); }
+    });
+    (function(){ const b = document.getElementById("gsInviteBtn"); if(b) b.addEventListener("click", gsOpenInvite); })();
 
     async function gsCreateShareLink(asReport){
       if(!gsTrip){ alert("No saved trip yet. Click Save Trip first."); return null; }
@@ -3983,6 +4142,7 @@ async function loadFromCloudIfAny(){
     }
     
     function dirty(){ 
+      window.__gsUnsaved = true;
       const s=$("cloudStatus"); 
       s.textContent="Unsaved changes…";
       setTimeout(()=>{ if(s.textContent==="Unsaved changes…") s.textContent=""; }, 1500);
@@ -4036,6 +4196,7 @@ async function loadFromCloudIfAny(){
       const hadHash = decodeHash();
       window.addEventListener("hashchange", decodeHash);
 
+      if(await loadFromJoinIfAny()) return;   // invite link: the join panel takes over until they join
       const loadedShare = await loadFromShareIfAny();
       if(loadedShare === "report") return; // page was replaced by the read-only report; stop here
 

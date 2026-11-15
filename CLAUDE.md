@@ -31,6 +31,7 @@ Live site for voyagegenie.com (AI travel planning). Static HTML/CSS/JS, no build
 1. `python3 tools/check-site.py` (script syntax, HTML structure, CSS braces, missing links). Deploys are blocked if it fails.
    - Touching the cost tracker or `js/vg-trip-store.js`: also `node tools/tests/vg-trip-store.test.cjs` and
      `node tools/tests/tracker-gs.e2e.cjs` (the tracker against a fake GenieSphere, incl. balances to the cent).
+   - Touching invites, joining or member editing on the tracker: `node tools/tests/invites-gs.e2e.cjs`.
    - Touching login, register or the trip dashboard: `node tools/tests/dashboard-auth.e2e.cjs` (both backends).
    - Touching any other page's Supabase bootstrap, header sign-in, plan/search saves or account: `node tools/tests/pages-gs.e2e.cjs`.
    - Touching `supabase/`: `bash supabase/tests/run.sh`.
