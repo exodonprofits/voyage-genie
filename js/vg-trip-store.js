@@ -193,7 +193,11 @@
         payments: (rows.settlements || []).map(function (s) {
           return { id: s.id, from: nameOf(s.from_member_id), to: nameOf(s.to_member_id), cents: Number(s.amount_cents) || 0,
                    method: s.method || '', confirmed: !!s.confirmed_at, markedBy: s.marked_by || null };
-        }).filter(function (x) { return x.from && x.to; })
+        }).filter(function (x) { return x.from && x.to; }),
+        // from a saved plan ("Track costs"): the plan's total budget and party size
+        planId: trip.plan_id || null,
+        plannedBudget: Number(settings.plannedBudget) > 0 ? Number(settings.plannedBudget) : 0,
+        plannedGroupSize: Number(settings.plannedGroupSize) > 0 ? Math.floor(Number(settings.plannedGroupSize)) : 0
       },
       snapshot: snapshot
     };
@@ -364,6 +368,77 @@
     var u = await sb.from('vg_trip_members').update({ in_split: false }).eq('trip_id', t.data.id).eq('user_id', user.id);
     if (u.error) throw fail('Setting up trip', u.error);
     return loadTrip(sb, t.data.id);
+  }
+
+  // A saved plan (vg_plans.plan_data from any planner) -> what a new tracker trip starts with.
+  // Pure, so it can be tested. People and expenses come from the plan's old mini expense log, if any.
+  function planToTrip(plan) {
+    var d = (plan && (plan.plan_data || plan.trip_data)) || {};
+    var iso = function (v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null; };
+    var start = iso(d.startDate), end = iso(d.endDate);
+    if (start && end && end < start) end = null;
+    var dest = [d.destination, d.destinationCity, d.adventureDestination, d.cruiseRegion]
+      .map(function (v) { return String(v || '').trim(); }).filter(Boolean)[0] || null;
+    var budget = Math.round((parseFloat(d.budget) || 0) * 100) / 100;
+    var group = Math.floor(parseFloat(d.groupSize) || 0);
+    var settings = {};
+    if (budget > 0) settings.plannedBudget = budget;
+    if (group > 0 && group <= 100) settings.plannedGroupSize = group;
+
+    var clean = function (v) { return String(v || '').trim().slice(0, 80); };
+    var names = [];
+    var add = function (n) { n = clean(n); if (n && names.indexOf(n) < 0) names.push(n); };
+    var parts = Array.isArray(d.participants) ? d.participants : String(d.participants || '').split(',');
+    parts.forEach(add);
+    var log = (Array.isArray(d.expenses) ? d.expenses : []).filter(function (e) { return e && (Number(e.amount) || 0) > 0; });
+    log.forEach(function (e) { add(e.paidBy); });
+    var expenses = names.length ? log.map(function (e) {
+      var included = {};
+      names.forEach(function (n) { included[n] = true; });
+      return { date: iso(e.date) || '', desc: clean(e.desc || e.description).slice(0, 300), category: '',
+               paidBy: clean(e.paidBy) || names[0], amount: Math.round(Number(e.amount) * 100) / 100, included: included };
+    }) : [];
+    return {
+      trip: { name: String((plan && plan.name) || d.name || '').slice(0, 200), destination: dest ? dest.slice(0, 120) : null,
+              start_date: start, end_date: end, plan_id: (plan && plan.id) || null, settings: settings },
+      people: names.map(function (n) { return { name: n, payer: n, size: 1 }; }),
+      expenses: expenses
+    };
+  }
+
+  // A "Track costs for this trip" link for a just-saved plan (GenieSphere only; null otherwise).
+  function trackCostsLink(planId) {
+    if (!planId || backend() !== 'gs' || typeof document === 'undefined') return null;
+    var a = document.createElement('a');
+    a.id = 'vgTrackCosts';
+    a.className = 'vg-btn';
+    a.href = 'trip-cost-tracker.html?from_plan=' + encodeURIComponent(planId);
+    a.textContent = '💰 Track costs for this trip';
+    a.style.cssText = 'text-decoration:none;display:inline-flex;align-items:center;gap:.3rem';
+    return a;
+  }
+
+  // "Track costs" on a saved plan: opens the plan's trip, or creates it (once per plan).
+  async function createTripFromPlan(sb, planId) {
+    var user = (await sb.auth.getUser()).data.user;
+    if (!user) throw new Error('Please sign in first.');
+    var had = await sb.from('vg_trips').select('id').eq('plan_id', planId).eq('owner_id', user.id).limit(1);
+    if (had.error) throw fail('Looking for the plan\'s trip', had.error);
+    if (had.data && had.data.length) { var old = await loadTrip(sb, had.data[0].id); old.existing = true; return old; }
+    var pl = await sb.from('vg_plans').select('id, name, plan_data').eq('id', planId).maybeSingle();
+    if (pl.error) throw fail('Reading the plan', pl.error);
+    if (!pl.data) throw new Error('That plan was not found (or isn\'t yours).');
+    var from = planToTrip(pl.data);
+    var row = Object.assign({ owner_id: user.id }, from.trip);
+    var t = await sb.from('vg_trips').insert(row).select('*').single();
+    if (t.error) throw fail('Creating trip', t.error);
+    var u = await sb.from('vg_trip_members').update({ in_split: false }).eq('trip_id', t.data.id).eq('user_id', user.id);
+    if (u.error) throw fail('Setting up trip', u.error);
+    var loaded = await loadTrip(sb, t.data.id);
+    if (!from.people.length) return loaded;
+    var st = loaded.state;
+    st.people = from.people; st.expenses = from.expenses;
+    return saveTrip(sb, loaded.snapshot, st);
   }
 
   // Writes the differences between snapshot and state. Returns the reloaded trip.
@@ -606,6 +681,9 @@
     googleEnabled: function () { return backend() !== 'gs' || GS_GOOGLE_ENABLED; },
     table: table,
     planRow: planRow,
+    planToTrip: planToTrip,
+    trackCostsLink: trackCostsLink,
+    createTripFromPlan: createTripFromPlan,
     planCols: planCols,
     planData: planData,
     ensureProfile: ensureProfile,

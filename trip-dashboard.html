@@ -1210,10 +1210,14 @@ Booked via: Expedia"></textarea>
         detailPills.push(`<span class="detail-pill" style="color:var(--green)">💸 $${expenseTotal.toFixed(0)} spent</span>`);
 
       // Action buttons — primary (always visible) + ⋯ overflow dropdown
+      // GenieSphere plans open the real cost tracker; the old in-plan mini log stays for ?db=salon only
+      const costBtn = GS_MODE
+        ? '<button class="vg-btn vg-btn-sm" data-action="trackCosts" data-id="' + r.id + '">💰 ' + (plansWithTrips.has(r.id) ? 'Open costs' : 'Track costs') + '</button>'
+        : '<button class="vg-btn vg-btn-sm" data-action="openExpenses" data-id="' + r.id + '">💸 Expenses</button>';
       const primaryBtns = legacy
         ? `<button class="vg-btn vg-btn-sm" data-action="viewTrip" data-id="${r.id}">💰 Cost Tracker</button>`
         : `<button class="vg-btn vg-btn-sm vg-btn-blue" data-action="viewTrip" data-id="${r.id}">👁️ View</button>
-           <button class="vg-btn vg-btn-sm" data-action="openExpenses" data-id="${r.id}">💸 Expenses</button>`;
+           ${costBtn}`;
 
       const overflowItems = legacy
         ? `<button class="overflow-menu-item" data-action="duplicateTrip" data-id="${r.id}">📄 Duplicate</button>
@@ -1295,6 +1299,7 @@ Booked via: Expedia"></textarea>
     if (action === 'exportOne')    exportOne(id);
     if (action === 'shareLink')    shareLink(id);
     if (action === 'openExpenses') openExpenses(id);
+    if (action === 'trackCosts')   location.href = 'trip-cost-tracker.html?from_plan=' + encodeURIComponent(id);
   });
 
   // Close overflow menus on outside click
@@ -1369,15 +1374,17 @@ Booked via: Expedia"></textarea>
 
   // GenieSphere: AI plans from vg_plans, cost-tracker trips from vg_trips
   // (every trip you're on, not only ones you own).
+  let plansWithTrips = new Set();   // plan ids that already have a cost-tracker trip (GenieSphere)
   async function loadTripsGs() {
     try { await window.VGTripStore.claimLegacy(sb); } catch (e) { console.warn('[dashboard] claim skipped:', e.message); }
     const [{ data: plans, error }, { data: trips, error: tErr }] = await Promise.all([
       sb.from('vg_plans').select('id,name,plan_data,created_at,updated_at').eq('user_id', user.id).order('updated_at', { ascending: false }),
-      sb.from('vg_trips').select('id,name,start_date,end_date,owner_id,created_at,updated_at').order('updated_at', { ascending: false })
+      sb.from('vg_trips').select('id,name,start_date,end_date,owner_id,plan_id,created_at,updated_at').order('updated_at', { ascending: false })
     ]);
     if (error) console.warn('[dashboard] plans:', error.message);
     if (tErr) console.warn('[dashboard] trips:', tErr.message);
     const tripList = trips || [];
+    plansWithTrips = new Set(tripList.filter(t => t.plan_id && t.owner_id === user.id).map(t => t.plan_id));
     const ids = tripList.map(t => t.id);
     let members = [], spends = [];
     if (ids.length) {

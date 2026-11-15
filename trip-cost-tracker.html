@@ -153,6 +153,11 @@
     .menu a:hover, .plan-menu a:hover{ background:#f3f4f6; color:#4c6ef5; }
     /* Tailwind's preflight sets this too; keep it here so phones don't overflow if that CDN is slow */
     *, *::before, *::after { box-sizing:border-box; }
+    /* Planned budget (trips made from a plan) */
+    .gs-plan-bar { margin:.2rem 0 .9rem; padding:.7rem .9rem; border:1px solid #bae6fd; background:#f0f9ff; border-radius:10px; font-size:.92rem; }
+    .gs-plan-track { height:8px; border-radius:6px; background:#e2e8f0; margin-top:.45rem; overflow:hidden; }
+    .gs-plan-fill { height:100%; background:#0077b6; border-radius:6px; }
+    .gs-plan-fill.over { background:#e76f51; }
     /* Quick add sheet */
     .qa-fab { display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:18px; z-index:900; border:none; border-radius:999px;
       background:#e76f51; color:#fff; font:600 1rem 'DM Sans',sans-serif; padding:.85rem 1.4rem; box-shadow:0 8px 24px rgba(0,0,0,.25); }
@@ -2416,6 +2421,7 @@ renderSummaryKpis(totalSpent, peopleCount, expensesCount, avgPerPerson);
       // settlements
       suggestSettlements(finalBal);
       renderSponsorSettlementNotes(sponsorApplied);
+      if(typeof gsShowPlan === "function") gsShowPlan();
     }    function recalculate(){ recalc(); }
     window.recalculate = recalculate;
 
@@ -3748,6 +3754,82 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       setLastSaved();
     }
 
+    /* ===== From a saved plan ("Track costs") ===== */
+    // ?from_plan=<plan id>: creates the plan's trip once (or reopens it), then loads it like any cloud trip.
+    async function loadFromPlanIfAny(){
+      const planId = new URLSearchParams(location.search).get("from_plan");
+      if(!planId || !gs) return false;
+      const panel = gsEl("div", { id:"gsPlanPanel", className:"gs-panel" });
+      $("cloudStatus").after(panel);
+      const { data:{ user } } = await gs.auth.getUser();
+      if(!user){
+        const here = "trip-cost-tracker.html?from_plan=" + encodeURIComponent(planId);
+        panel.appendChild(gsEl("h3", { text:"Sign in to track costs for your plan" }));
+        panel.appendChild(gsEl("div", { className:"gs-row" }, [
+          gsEl("a", { className:"vg-btn vg-btn-blue", href:"login.html?next=" + encodeURIComponent(here), text:"Sign in" }),
+          gsEl("a", { className:"vg-btn", href:"register.html?next=" + encodeURIComponent(here), text:"Create an account" })
+        ]));
+        return true;
+      }
+      panel.textContent = "Setting up your trip…";
+      try{
+        const t = await VG_STORE.createTripFromPlan(gs, planId);
+        try{ sessionStorage.setItem("vg-from-plan", t.existing ? "existing" : "new"); }catch(e){}
+        const u = new URL(location.origin + location.pathname);
+        u.searchParams.set("trip_id", t.snapshot.tripId);
+        location.replace(u.toString());
+      }catch(e){
+        panel.textContent = "";
+        panel.appendChild(gsEl("h3", { text:"Couldn't start tracking this plan" }));
+        panel.appendChild(gsEl("div", { text:e.message }));
+        panel.appendChild(gsEl("a", { className:"vg-btn", href:"trip-dashboard.html", text:"Back to My Trips" }));
+      }
+      return true;
+    }
+    // After load: say where the trip came from, and nudge for missing travelers.
+    function gsShowPlanNotes(){
+      let flag = null;
+      try{ flag = sessionStorage.getItem("vg-from-plan"); sessionStorage.removeItem("vg-from-plan"); }catch(e){}
+      if(flag === "new") $("cloudStatus").textContent = "Trip created from your plan ✅ Add everyone who's going, then log expenses as they happen.";
+      if(flag === "existing") $("cloudStatus").textContent = "This plan already has a trip, so here it is.";
+      gsShowPlanHint();
+    }
+    function gsShowPlanHint(){
+      let hint = document.getElementById("gsPlanHint");
+      const st = typeof gs !== "undefined" && gs && gsTrip && gsTrip.state;
+      const want = st && gsTrip.role === "owner" ? st.plannedGroupSize : 0;
+      const have = people.reduce((s, p)=>s + Math.max(1, Number(p.size) || 1), 0);
+      if(!want || have >= want){ if(hint) hint.remove(); return; }
+      if(!hint){ hint = gsEl("div", { id:"gsPlanHint", className:"gs-joined" }); $("peopleList").before(hint); }
+      hint.textContent = "🧳 Your plan is for " + want + " traveler" + (want === 1 ? "" : "s") + " · " + have + " added so far. Add everyone who's splitting costs.";
+    }
+    // Step 3: planned budget vs what's been spent (only for trips made from a plan with a budget).
+    function gsShowPlan(){
+      gsShowPlanHint();
+      let bar = document.getElementById("gsPlanBar");
+      const budget = (typeof gs !== "undefined" && gs && gsTrip && gsTrip.state) ? gsTrip.state.plannedBudget : 0;
+      if(!budget){ if(bar) bar.remove(); return; }
+      const spent = expenses.reduce((s, ex)=>s + (ex && ex.kind !== "budget_transfer" ? (Number(ex.amount) || 0) : 0), 0);
+      const pct = Math.min(100, Math.round(spent / budget * 100));
+      const over = spent > budget;
+      if(!bar){
+        bar = gsEl("div", { id:"gsPlanBar", className:"gs-plan-bar" });
+        // full width, right under Step 3's header row (the header is a flex row with Refresh)
+        const panel = $("panel-summary");
+        let row = panel.querySelector(".vg-title");
+        while(row && row.parentElement !== panel) row = row.parentElement;
+        if(row) row.after(bar); else panel.prepend(bar);
+      }
+      bar.textContent = "";
+      bar.appendChild(gsEl("div", { className:"gs-plan-line" }, [
+        gsEl("strong", { text:"Planned budget " + fmtCurrency(budget) }),
+        gsEl("span", { text:" · spent " + fmtCurrency(spent) + " · " + (over ? fmtCurrency(spent - budget) + " over" : fmtCurrency(budget - spent) + " left") })
+      ]));
+      const track = gsEl("div", { className:"gs-plan-track" });
+      track.appendChild(gsEl("div", { className:"gs-plan-fill" + (over ? " over" : ""), style:"width:" + pct + "%" }));
+      bar.appendChild(track);
+    }
+
     /* ===== Quick add (phone-friendly "add expense") ===== */
     // A bottom sheet: amount, what, who paid (you by default), who splits (everyone), date (today).
     // On a cloud trip it saves right away; otherwise it just adds the row.
@@ -3990,6 +4072,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       }
       gsShowJoined();
       gsShowPayDetails();
+      gsShowPlanNotes();
       renderExpenses(); recalc();
     }
     // Who has joined with an account, and who is still just a name.
@@ -4443,6 +4526,7 @@ async function loadFromCloudIfAny(){
       window.addEventListener("hashchange", decodeHash);
 
       if(await loadFromJoinIfAny()) return;   // invite link: the join panel takes over until they join
+      if(await loadFromPlanIfAny()) return;   // "Track costs" on a plan: makes or finds its trip, then reloads with trip_id
       const loadedShare = await loadFromShareIfAny();
       if(loadedShare === "report") return; // page was replaced by the read-only report; stop here
 

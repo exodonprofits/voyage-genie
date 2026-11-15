@@ -6,14 +6,14 @@
 const crypto = require('crypto');
 
 function createFake({ userId } = {}) {
-  const db = { vg_trips: [], vg_trip_members: [], vg_trip_expenses: [], vg_trip_settlements: [] };
+  const db = { vg_plans: [], vg_trips: [], vg_trip_members: [], vg_trip_expenses: [], vg_trip_settlements: [] };
   const log = [];
   let clock = Date.parse('2026-11-15T10:00:00Z');
   const now = () => new Date(clock += 1000).toISOString();
   const clone = (x) => JSON.parse(JSON.stringify(x));
 
   function builder(table) {
-    let op = 'select', payload = null, filters = [], mode = 'many', wantRows = false;
+    let op = 'select', payload = null, filters = [], mode = 'many', wantRows = false, max = Infinity;
     const b = {
       select() { if (op === 'select') op = 'select'; else wantRows = true; return b; },
       insert(v) { op = 'insert'; payload = v; return b; },
@@ -22,6 +22,7 @@ function createFake({ userId } = {}) {
       eq(c, v) { filters.push((r) => r[c] === v); return b; },
       in(c, arr) { filters.push((r) => arr.includes(r[c])); return b; },
       order() { return b; },
+      limit(n) { max = n; return b; },
       single() { mode = 'single'; return b; },
       maybeSingle() { mode = 'maybe'; return b; },
       then(res, rej) {
@@ -73,6 +74,7 @@ function createFake({ userId } = {}) {
         db[table] = rows.filter((r) => !match(r));
         out = gone.map(clone);
       }
+      if (op === 'select') out = out.slice(0, max);
       if (mode === 'single') return out.length === 1 ? { data: out[0], error: null } : { data: null, error: { message: 'expected 1 row, got ' + out.length } };
       if (mode === 'maybe') return { data: out[0] || null, error: null };
       return { data: out, error: null };

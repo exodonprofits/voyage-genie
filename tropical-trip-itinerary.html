@@ -922,8 +922,10 @@ document.addEventListener('DOMContentLoaded', () => {
         itineraryHtml: itineraryHtml,
         sessionId: sessionId
       };
-      const { error } = await sb.from(VGTripStore.table('user_trips')).insert(VGTripStore.planRow(user.id, tripData.name, tripData));
+      const { data: savedPlan, error } = await sb.from(VGTripStore.table('user_trips')).insert(VGTripStore.planRow(user.id, tripData.name, tripData)).select('id').single();
       if (error) throw error;
+      const trackLink = VGTripStore.trackCostsLink(savedPlan && savedPlan.id);
+      if (trackLink) { const old = document.getElementById('vgTrackCosts'); if (old) old.remove(); btn.after(trackLink); }
       btn.innerHTML = '✅ <span>Saved!</span>';
       setTimeout(() => { btn.disabled = false; btn.innerHTML = '💾 <span>Save to My Trips</span>'; }, 3000);
     } catch(err) {

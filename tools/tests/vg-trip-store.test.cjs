@@ -140,5 +140,37 @@ const ok = (cond, label) => { assert.ok(cond, label); passed++; console.log('ok 
   ok(t.me && t.me.display_name === 'Jimmy T' && t.role === 'owner' && t.me.in_split, 'after "that\'s me" the owner is Jimmy T, in the split');
   ok(t.state.people.length === 3, 'organizer row gone, people unchanged');
 
+  // ── a saved plan becomes a trip ("Track costs") ──────────────────
+  const pm = S.planToTrip({ id: 'p1', name: 'Cancun Getaway', plan_data: { destination: 'Cancun', startDate: '2027-03-01', endDate: '2027-02-20',
+    budget: '4000', groupSize: '4', participants: 'Jimmy, Jenny', expenses: [{ date: '2027-03-01', desc: 'Villa', paidBy: 'Jimmy', amount: 300 },
+    { desc: 'Taxi', paidBy: 'Hao', amount: '45.5' }, { desc: 'nothing', paidBy: 'Jimmy', amount: 0 }] } });
+  ok(pm.trip.name === 'Cancun Getaway' && pm.trip.destination === 'Cancun' && pm.trip.plan_id === 'p1', 'plan -> trip: name, destination, plan link');
+  ok(pm.trip.start_date === '2027-03-01' && pm.trip.end_date === null, 'an end date before the start is dropped');
+  ok(pm.trip.settings.plannedBudget === 4000 && pm.trip.settings.plannedGroupSize === 4, 'planned budget and party size kept');
+  ok(pm.people.map((x) => x.name).join() === 'Jimmy,Jenny,Hao', 'people: the plan\'s participants plus anyone who paid');
+  ok(pm.expenses.length === 2 && pm.expenses[1].amount === 45.5 && pm.expenses[1].included.Jenny === true, 'old log expenses carried over (zero dropped), split with everyone');
+  const cruise = S.planToTrip({ id: 'p2', name: 'Med', plan_data: { cruiseRegion: 'Mediterranean', startDate: 'soon', budget: 'lots', groupSize: '0' } });
+  ok(cruise.trip.destination === 'Mediterranean' && cruise.trip.start_date === null && !('plannedBudget' in cruise.trip.settings) &&
+     !cruise.people.length && !cruise.expenses.length, 'junk dates/budget ignored; cruise region used as destination; no log = no people');
+
+  db.vg_plans.push({ id: 'plan-1', user_id: USER, name: 'Cancun Getaway', plan_data: { destination: 'Cancun', startDate: '2027-03-01', endDate: '2027-03-08',
+    budget: 3000, groupSize: 3, participants: ['Jimmy', 'Jenny'], expenses: [{ desc: 'Deposit', paidBy: 'Jenny', amount: 90 }] } });
+  const trips0 = db.vg_trips.length;
+  const fp = await S.createTripFromPlan(client, 'plan-1');
+  ok(db.vg_trips.length === trips0 + 1 && fp.state.planId === 'plan-1' && fp.state.plannedBudget === 3000 && fp.state.plannedGroupSize === 3,
+     'createTripFromPlan: one trip, linked to the plan, with the planned budget');
+  ok(fp.state.tripStart === '2027-03-01' && fp.state.tripEnd === '2027-03-08' && fp.state.tripTitle === 'Cancun Getaway', '...dates and name filled in');
+  ok(fp.state.people.map((x) => x.name).sort().join() === 'Jenny,Jimmy' && fp.state.expenses.length === 1 && fp.role === 'owner' &&
+     !fp.state.people.some((x) => x.name === 'organizer'), '...people and the old Deposit expense saved; organizer stays outside the split');
+  const bp = balances(fp.state);
+  ok(bp.Jenny === -4500 && bp.Jimmy === 4500, '...and it balances: Jimmy owes Jenny $45');
+  const again = await S.createTripFromPlan(client, 'plan-1');
+  ok(again.existing === true && again.snapshot.tripId === fp.snapshot.tripId && db.vg_trips.length === trips0 + 1, 'second click opens the same trip (no duplicate)');
+  const s2 = again.state; s2.tripName = 'renamed';
+  const kept = await S.saveTrip(client, again.snapshot, s2);
+  ok(kept.state.plannedBudget === 3000, 'planned budget survives a normal save');
+  await assert.rejects(S.createTripFromPlan(client, 'nope'), /not found/);
+  ok(true, 'unknown plan: clear error');
+
   console.log('ALL ' + passed + ' STORE TESTS PASSED');
 })().catch((e) => { console.error('FAIL', e && e.stack || e); process.exit(1); });
