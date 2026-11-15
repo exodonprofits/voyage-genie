@@ -1335,7 +1335,7 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
     /* ===== Data model (starts empty) ===== */
     let people = [];                 // [{name, payer}]
     let expenses = [];               // [{date, desc, paidBy, amount, included:{name:bool}}]
-    let settlementMeta = {};       // { key: {paid:boolean, method:string, paid_at:string} }
+    let settlementMeta = {};       // { "from||to": {paid, method, paid_at, paid_cents} }
     let sponsorRules = [];         // [{label,sponsors:[names],traveler,mode,value}]
     let tripTitle = "";
 
@@ -1483,8 +1483,9 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
                                     carries the head count, so copy it across
                                     rather than writing `true`
          5. sponsorRules[]          both .traveler and the .sponsors array
-         6. settlementMeta          keys are "from||to||cents", so the paid
-                                    ticks would silently reset without this
+         6. settlementMeta          keys are "from||to" (older saves:
+                                    "from||to||cents"), so the paid ticks
+                                    would silently reset without this
        Returns an error string, or null on success. */
     function renamePerson(oldName, newName){
       if(oldName === newName) return null;
@@ -1520,7 +1521,7 @@ tr.flash-row > td{ animation: flashRow 1.6s ease-out; }
         const migrated = {};
         Object.keys(settlementMeta).forEach(k=>{
           const parts = k.split("||");
-          if(parts.length === 3){
+          if(parts.length >= 2){
             if(parts[0] === oldName) parts[0] = newName;
             if(parts[1] === oldName) parts[1] = newName;
             migrated[parts.join("||")] = settlementMeta[k];
@@ -2701,24 +2702,86 @@ function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
     }
 
     
+    /* Settlement "paid" records.
+       Keyed by WHO pays WHOM ("from||to"), not by amount. The amount changes
+       whenever an expense is added or edited, and keying on it used to
+       silently un-mark payments and pile up hundreds of stale records.
+       Each record keeps the amount that was marked paid (paid_cents), so a
+       later change shows as "paid $X, $Y still owed" instead of resetting. */
     function settlementKey(row){
-      return `${row.from}||${row.to}||${Math.round((row.amt||0)*100)}`;
+      return row.from + "||" + row.to;
+    }
+    function rowCents(row){
+      return Math.round((row.amt||0)*100);
+    }
+    // Read-only lookup: rendering must never create records.
+    function getSettlementMeta(row){
+      const m = settlementMeta && settlementMeta[settlementKey(row)];
+      return (m && typeof m === "object") ? m : null;
     }
     function ensureSettlementMeta(key){
       if(!settlementMeta || typeof settlementMeta!=="object") settlementMeta = {};
-      if(!settlementMeta[key]) settlementMeta[key] = { paid:false, method:"", paid_at:"" };
+      if(!settlementMeta[key]) settlementMeta[key] = { paid:false, method:"", paid_at:"", paid_cents:0 };
       return settlementMeta[key];
     }
-    function setSettlementPaid(key, paid){
-      const m = ensureSettlementMeta(key);
+    // How a suggested payment stands against what was marked paid.
+    // state: "open" (nothing paid), "partial" (paid less than now owed),
+    // "paid" (paid in full; overCents > 0 if the balance later went down).
+    function settlementStatus(row){
+      const m = getSettlementMeta(row);
+      const owed = rowCents(row);
+      const method = (m && m.method) || "";
+      const paid = (m && m.paid) ? Math.max(0, Math.round(Number(m.paid_cents)||0)) : 0;
+      if(!paid) return { state:"open", paidCents:0, leftCents:owed, overCents:0, method, paidAt:"" };
+      if(paid >= owed - 1) return { state:"paid", paidCents:paid, leftCents:0, overCents:Math.max(0, paid-owed), method, paidAt:m.paid_at||"" };
+      return { state:"partial", paidCents:paid, leftCents:owed-paid, overCents:0, method, paidAt:m.paid_at||"" };
+    }
+    // Marking paid records the full amount currently owed on that row.
+    function setSettlementPaid(row, paid){
+      const m = ensureSettlementMeta(settlementKey(row));
       m.paid = !!paid;
+      m.paid_cents = m.paid ? rowCents(row) : 0;
       m.paid_at = m.paid ? new Date().toISOString() : "";
       dirty();
     }
-    function setSettlementMethod(key, method){
-      const m = ensureSettlementMeta(key);
+    function setSettlementMethod(row, method){
+      const m = ensureSettlementMeta(settlementKey(row));
       m.method = (method||"");
       dirty();
+    }
+    /* Bring saved records of any age into the pair-keyed form and drop noise.
+       Old keys were "from||to||cents": per pair, keep the most recent paid
+       record (its cents are what was paid), otherwise keep a chosen payment
+       method. Records that are neither paid nor carry a method are dropped. */
+    function normalizeSettlementMeta(raw){
+      const out = {};
+      if(!raw || typeof raw !== "object") return out;
+      Object.keys(raw).forEach(k=>{
+        const v = raw[k];
+        if(!v || typeof v !== "object") return;
+        const parts = k.split("||");
+        if(parts.length < 2 || !parts[0] || !parts[1]) return;
+        const pair = parts[0] + "||" + parts[1];
+        const paid = !!v.paid;
+        const savedCents = Math.round(Number(v.paid_cents)||0);
+        const keyCents = parts.length >= 3 ? Math.round(Number(parts[2])||0) : 0;
+        const rec = {
+          paid,
+          method: typeof v.method === "string" ? v.method : "",
+          paid_at: (paid && typeof v.paid_at === "string") ? v.paid_at : "",
+          paid_cents: paid ? (savedCents > 0 ? savedCents : keyCents) : 0
+        };
+        if(!rec.paid && !rec.method) return;
+        const cur = out[pair];
+        if(!cur){ out[pair] = rec; return; }
+        if(rec.paid && (!cur.paid || rec.paid_at > cur.paid_at)){
+          if(!rec.method) rec.method = cur.method;
+          out[pair] = rec;
+        } else if(!cur.method && rec.method){
+          cur.method = rec.method;
+        }
+      });
+      return out;
     }
 
 function suggestSettlements(balMap){
@@ -2746,7 +2809,7 @@ function suggestSettlements(balMap){
         // deliberately do not match Step 3 one-for-one, and saying why up
         // front prevents that from reading as a bug.
         const moved = rows.reduce((s,r)=>s+(r.amt||0),0);
-        const done  = rows.filter(r=>ensureSettlementMeta(settlementKey(r)).paid).length;
+        const done  = rows.filter(r=>settlementStatus(r).state==="paid").length;
         const head=document.createElement("div");
         head.style.cssText="border:1px solid var(--border);background:#f8fafc;border-radius:7px;padding:.6rem .75rem;margin-bottom:.75rem;font-size:.85rem;line-height:1.5";
         head.innerHTML = `<strong>${rows.length} payment${rows.length===1?'':'s'} clears everything.</strong>
@@ -2757,20 +2820,38 @@ function suggestSettlements(balMap){
         const grid=document.createElement("div");
         grid.className="settle-grid";
         rows.forEach(r=>{
-          const key = settlementKey(r);
-          const meta = ensureSettlementMeta(key);
-
           const card=document.createElement("div");
-          card.className="settle-card" + (meta.paid ? " paid" : "");
-
           const top=document.createElement("div");
           top.className="flex items-center flex-wrap gap-2";
-          top.innerHTML = `
-            <span class="vg-chip">💸 ${r.from}</span>
-            <span class="text-gray-500">pays</span>
-            <span class="vg-chip">🧾 ${r.to}</span>
-            ${meta.paid ? `<span class="vg-chip" title="Marked as paid">✅ Paid</span>` : "" }
-          `;
+
+          function chip(text, title){
+            const s=document.createElement("span");
+            s.className="vg-chip";
+            s.textContent=text;
+            if(title) s.title=title;
+            return s;
+          }
+          // Re-render this card's chips, class and meta line from the record,
+          // without redoing the whole list.
+          function refreshCard(){
+            const st = settlementStatus(r);
+            card.className="settle-card" + (st.state==="paid" ? " paid" : "");
+            top.replaceChildren();
+            top.appendChild(chip("💸 " + r.from));
+            const pays=document.createElement("span");
+            pays.className="text-gray-500";
+            pays.textContent="pays";
+            top.appendChild(pays);
+            top.appendChild(chip("🧾 " + r.to));
+            if(st.state==="paid") top.appendChild(chip("✅ Paid", "Marked as paid"));
+            if(st.state==="partial") top.appendChild(chip("⚠️ Partly paid", "Paid before the balance went up"));
+            paidChk.checked = st.state==="paid";
+            paidText.textContent = st.state==="partial"
+              ? "Mark " + fmtCurrency(st.leftCents/100) + " paid"
+              : "Mark as paid";
+            metaLine.textContent = buildMetaLine(st);
+            metaLine.style.display = metaLine.textContent ? "block" : "none";
+          }
 
           const amt=document.createElement("div");
           amt.className="settle-amount money";
@@ -2783,23 +2864,11 @@ function suggestSettlements(balMap){
           paidLabel.className="flex items-center gap-2 text-sm";
           const paidChk=document.createElement("input");
           paidChk.type="checkbox";
-          paidChk.checked=!!meta.paid;
           paidChk.addEventListener("change", ()=>{
-            setSettlementPaid(key, paidChk.checked);
-            card.classList.toggle("paid", paidChk.checked);
-            // re-render this card's paid badge + meta line without redoing the whole list
-            top.innerHTML = `
-              <span class="vg-chip">💸 ${r.from}</span>
-              <span class="text-gray-500">pays</span>
-              <span class="vg-chip">🧾 ${r.to}</span>
-              ${paidChk.checked ? `<span class="vg-chip" title="Marked as paid">✅ Paid</span>` : "" }
-            `;
-            metaLine.textContent = buildMetaLine(key);
-            metaLine.style.display = metaLine.textContent ? "block" : "none";
-            metaLine.style.display = metaLine.textContent ? "block" : "none";
+            setSettlementPaid(r, paidChk.checked);
+            refreshCard();
           });
           const paidText=document.createElement("span");
-          paidText.textContent="Mark as paid";
           paidLabel.appendChild(paidChk);
           paidLabel.appendChild(paidText);
 
@@ -2812,10 +2881,10 @@ function suggestSettlements(balMap){
             <option value="cash">Cash</option>
             <option value="other">Other</option>
           `;
-          method.value = meta.method || "";
+          method.value = (getSettlementMeta(r) || {}).method || "";
           method.addEventListener("change", ()=>{
-            setSettlementMethod(key, method.value);
-            metaLine.textContent = buildMetaLine(key);
+            setSettlementMethod(r, method.value);
+            refreshCard();
           });
 
           controls.appendChild(paidLabel);
@@ -2823,31 +2892,24 @@ function suggestSettlements(balMap){
 
           const metaLine=document.createElement("div");
           metaLine.className="settle-meta";
-          function buildMetaLine(k){
-            const m = ensureSettlementMeta(k);
-            if(!m.paid && !m.method) return "";
+          function buildMetaLine(st){
             const parts=[];
-            if(m.method) parts.push(`Type: ${m.method.toUpperCase()}`);
-            if(m.paid && m.paid_at){
-              const d=new Date(m.paid_at);
-              if(!isNaN(d)){
-                const hrs=d.getHours()%12||12;
-                const mins=String(d.getMinutes()).padStart(2,'0');
-                const ampm=d.getHours()>=12?'PM':'AM';
-                parts.push(`Paid: ${hrs}:${mins} ${ampm}`);
-              } else {
-                parts.push("Paid ✅");
-              }
+            if(st.method) parts.push("Type: " + st.method.toUpperCase());
+            if(st.state !== "open"){
+              const d = new Date(st.paidAt);
+              const when = isNaN(d) ? "" : " on " + d.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+              parts.push("Paid " + fmtCurrency(st.paidCents/100) + when);
             }
+            if(st.state==="partial") parts.push(fmtCurrency(st.leftCents/100) + " still owed (balance went up)");
+            if(st.overCents > 0) parts.push("Balance is now " + fmtCurrency(rowCents(r)/100) + ": " + fmtCurrency(st.overCents/100) + " overpaid, settle the difference");
             return parts.join(" • ");
           }
-          metaLine.textContent = buildMetaLine(key);
 
           card.appendChild(top);
           card.appendChild(amt);
           card.appendChild(controls);
-          metaLine.style.display = metaLine.textContent ? "block" : "none";
           card.appendChild(metaLine);
+          refreshCard();
 
           grid.appendChild(card);
         });
@@ -3044,14 +3106,12 @@ function suggestSettlements(balMap){
       });
 
       const settleRows = settlements.map(s => {
-        const key  = settlementKey(s);
-        const meta = (settlementMeta && (
-          settlementMeta[key] ||
-          settlementMeta[`${s.from}||${s.to}||${Math.round((s.amt||0)*100)}`]
-        )) || {};
-        const badge = meta.paid
-          ? `<span class="q-chip q-paid">✅ Paid</span>`
-          : `<span class="q-chip q-pending">⏳ Pending</span>`;
+        const st = settlementStatus(s);
+        const badge = st.state === "paid"
+          ? '<span class="q-chip q-paid">✅ Paid</span>'
+          : st.state === "partial"
+            ? '<span class="q-chip q-pending">⚠️ ' + fmtCurrency(st.leftCents/100) + ' left</span>'
+            : '<span class="q-chip q-pending">⏳ Pending</span>';
         return `<div class="q-settle-row">
           <div class="q-settle-who">
             <span class="q-pill">${reportEsc(s.from)}</span>
@@ -3359,9 +3419,9 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
               /* The list alone answers "who pays whom" but not "how much is
                  still outstanding" — which is the question anyone chasing
                  payments actually opens the report to answer. */
-              const done = settlements.filter(s=>ensureSettlementMeta(settlementKey(s)).paid);
-              const left = settlements.filter(s=>!ensureSettlementMeta(settlementKey(s)).paid);
-              const owedLeft = left.reduce((t,s)=>t+(s.amt||0),0);
+              const done = settlements.filter(s=>settlementStatus(s).state==="paid");
+              const left = settlements.filter(s=>settlementStatus(s).state!=="paid");
+              const owedLeft = left.reduce((t,s)=>t+settlementStatus(s).leftCents/100,0);
               const total = settlements.reduce((t,s)=>t+(s.amt||0),0);
               return `<div style="border:1px solid var(--border);background:var(--bg);border-radius:7px;padding:.75rem .9rem;margin-bottom:1rem;font-size:.88rem;line-height:1.55">
                 <strong>${settlements.length} payment${settlements.length===1?'':'s'}</strong> settles the trip, moving ${fmtCurrency(total)} in total.
@@ -3373,13 +3433,16 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
             })()}
             <div class="r-settle-list">
               ${settlements.map(s=>{
-                const key = settlementKey(s);
-                // Try current key format first, then fall back to legacy Math.round format
-                const meta = (settlementMeta && (settlementMeta[key] || settlementMeta[`${s.from}||${s.to}||${Math.round((s.amt||0)*100)}`])) || {};
+                const st = settlementStatus(s);
+                const chip = st.state === "paid"
+                  ? '<span class="r-chip r-chip-get">✅ Paid</span>'
+                  : st.state === "partial"
+                    ? '<span class="r-chip r-chip-owe">⚠️ Paid ' + fmtCurrency(st.paidCents/100) + ', ' + fmtCurrency(st.leftCents/100) + ' left</span>'
+                    : '<span class="r-chip r-chip-owe">⏳ Pending</span>';
                 return `<div class="r-settle-row">
                   <div><span class="r-pill">${reportEsc(s.from)}</span> <span class="r-muted">pays</span> <span class="r-pill">${reportEsc(s.to)}</span></div>
                   <div class="r-money r-settle-amt">${fmtCurrency(s.amt)}</div>
-                  <div>${meta.paid ? `<span class="r-chip r-chip-get">✅ Paid</span>` : `<span class="r-chip r-chip-owe">⏳ Pending</span>`}</div>
+                  <div>${chip}</div>
                 </div>`;
               }).join("")}
             </div>
@@ -3527,7 +3590,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
 
     /* ===== Cloud: Supabase save/load/auth ===== */
     function payload(){
-      return { name: $("tripTitle").value || "", form_data: { people, expenses, settlementMeta, sponsorRules, tripTitle: $("tripTitle").value || "", tripName: (document.getElementById("tripName")?.value||""), tripStart: (document.getElementById("tripStart")?.value||""), tripEnd: (document.getElementById("tripEnd")?.value||"") } };
+      return { name: $("tripTitle").value || "", form_data: { people, expenses, settlementMeta: normalizeSettlementMeta(settlementMeta), sponsorRules, tripTitle: $("tripTitle").value || "", tripName: (document.getElementById("tripName")?.value||""), tripStart: (document.getElementById("tripStart")?.value||""), tripEnd: (document.getElementById("tripEnd")?.value||"") } };
     }
     async function saveToCloud(){
       if(__vg_shared_readonly){ alert("This is a shared view (read-only). Ask the trip owner to save changes."); return; }
@@ -3692,7 +3755,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       tripTitle = fd.tripTitle || data.name || "";
       people = Array.isArray(fd.people)? fd.people.map(p=> typeof p==="string"?{name:p,payer:p,size:1}:{name:p.name,payer:p.payer||p.name,size:Math.max(1,Number(p.size)||1)}) : [];
       expenses = normalizeExpensesList(fd.expenses);
-      settlementMeta = (fd && typeof fd.settlementMeta==='object' && fd.settlementMeta) ? fd.settlementMeta : {};
+      settlementMeta = normalizeSettlementMeta(fd && fd.settlementMeta);
       sponsorRules = Array.isArray(fd?.sponsorRules) ? fd.sponsorRules : [];
 
       $("tripTitle").value = tripTitle;
@@ -3724,7 +3787,7 @@ async function loadFromCloudIfAny(){
       tripTitle = fd.tripTitle || data.name || "";
       people = Array.isArray(fd.people)? fd.people.map(p=> typeof p==="string"?{name:p,payer:p,size:1}:{name:p.name,payer:p.payer||p.name,size:Math.max(1,Number(p.size)||1)}) : [];
       expenses = normalizeExpensesList(fd.expenses);
-      settlementMeta = (fd && typeof fd.settlementMeta==='object' && fd.settlementMeta) ? fd.settlementMeta : {};
+      settlementMeta = normalizeSettlementMeta(fd && fd.settlementMeta);
       sponsorRules = Array.isArray(fd?.sponsorRules) ? fd.sponsorRules : [];
       $("tripTitle").value=tripTitle;
       const tn = document.getElementById("tripName");
@@ -3782,14 +3845,14 @@ async function loadFromCloudIfAny(){
       setTimeout(()=>{ if(s.textContent==="Unsaved changes…") s.textContent=""; }, 1500);
     }
 
-    function encodeHash(){ const s=JSON.stringify({people,expenses,settlementMeta,sponsorRules,tripTitle:$("tripTitle").value||""}); location.hash="s="+btoa(unescape(encodeURIComponent(s))); return location.href; }
+    function encodeHash(){ const s=JSON.stringify({people,expenses,settlementMeta:normalizeSettlementMeta(settlementMeta),sponsorRules,tripTitle:$("tripTitle").value||""}); location.hash="s="+btoa(unescape(encodeURIComponent(s))); return location.href; }
     function decodeHash(){
       const m=location.hash.match(/[#&?]s=([^&]+)/); if(!m) return false;
       try{
         const state=JSON.parse(decodeURIComponent(escape(atob(m[1]))));
         if(Array.isArray(state.people)&&Array.isArray(state.expenses)){
           people=state.people.map(p=> typeof p==="string"?{name:p,payer:p,size:1}:{name:p.name,payer:p.payer||p.name,size:Math.max(1,Number(p.size)||1)});
-          expenses=normalizeExpensesList(state.expenses); settlementMeta=(state.settlementMeta && typeof state.settlementMeta==="object")?state.settlementMeta:{}; sponsorRules=Array.isArray(state.sponsorRules)?state.sponsorRules:[]; tripTitle=state.tripTitle||""; $("tripTitle").value=tripTitle;
+          expenses=normalizeExpensesList(state.expenses); settlementMeta=normalizeSettlementMeta(state.settlementMeta); sponsorRules=Array.isArray(state.sponsorRules)?state.sponsorRules:[]; tripTitle=state.tripTitle||""; $("tripTitle").value=tripTitle;
       const tn = document.getElementById("tripName");
       if(tn && !tn.value){ tn.value = ((tripTitle||"").split(" – ")[0]||""); }
       syncTripTitleHidden();
@@ -3847,7 +3910,7 @@ async function loadFromCloudIfAny(){
                 ? fd.people.map(p => typeof p === 'string' ? {name:p, payer:p, size:1} : {name:p.name, payer:p.payer||p.name, size:Math.max(1,Number(p.size)||1)})
                 : [];
               expenses = normalizeExpensesList(fd.expenses);
-              settlementMeta = (fd.settlementMeta && typeof fd.settlementMeta === 'object') ? fd.settlementMeta : {};
+              settlementMeta = normalizeSettlementMeta(fd.settlementMeta);
               sponsorRules   = Array.isArray(fd.sponsorRules) ? fd.sponsorRules : [];
               const tripName = fd.tripName || fd.name || fd.tripTitle || '';
               if (tripName && document.getElementById('tripName')) {
