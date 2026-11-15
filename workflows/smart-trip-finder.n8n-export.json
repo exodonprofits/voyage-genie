@@ -1,5 +1,5 @@
 {
-  "name": "Voyage - Smart Trip Finder",
+  "name": "Voyage Genie – Smart Trip Finder",
   "nodes": [
     {
       "parameters": {
@@ -17,8 +17,7 @@
       "position": [
         -1344,
         48
-      ],
-      "webhookId": "a0c342c2-5bee-4c3e-957c-126f9cb36027"
+      ]
     },
     {
       "parameters": {
@@ -44,7 +43,7 @@
           "conditions": [
             {
               "id": "c0nd-0001",
-              "leftValue": "={{ $json.__invalid }}",
+              "leftValue": "={{ $json.__invalid === true }}",
               "rightValue": false,
               "operator": {
                 "type": "boolean",
@@ -89,7 +88,6 @@
       ],
       "credentials": {
         "openAiApi": {
-          "id": "a3k4PaLdtRKABoos",
           "name": "OpenAi account"
         }
       },
@@ -128,7 +126,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.error }) }}",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.error || 'Something was wrong with that request. Please check the form and try again.' }) }}",
         "options": {
           "responseCode": 200
         }
@@ -208,14 +206,8 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1"
-  },
-  "versionId": "f5417bc7-34da-4abe-af81-bf15b083a3a5",
-  "meta": {
-    "instanceId": "2cd559a29dd6efd6fe7dbdafc7702b357fbdeea9ac49cdfc5458c9691b39715b"
-  },
-  "id": "KqD5bWJkHFIHj5Fn",
-  "tags": []
+  }
 }
