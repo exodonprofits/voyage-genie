@@ -3770,7 +3770,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       closeQuickAdd();
       const me = (typeof gsMyName === "function" && typeof gs !== "undefined" && gs && typeof gsTrip !== "undefined" && gsTrip) ? gsMyName() : null;
 
-      const amount = qaEl("input", { type:"number", inputMode:"decimal", step:"0.01", placeholder:"0.00", className:"qa-amount", id:"qaAmount" });
+      const amount = qaEl("input", { type:"text", inputMode:"decimal", autocomplete:"off", placeholder:"0.00", className:"qa-amount", id:"qaAmount" });
       const desc = qaEl("input", { type:"text", placeholder:"What was it? (e.g. Dinner at Luigi's)", className:"qa-input", id:"qaDesc", maxLength:300 });
       const payer = qaEl("select", { className:"qa-input", id:"qaPaidBy" });
       list.forEach(n=>payer.appendChild(qaEl("option", { value:n, text:n })));
@@ -3808,7 +3808,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       const cancel = qaEl("button", { type:"button", className:"qa-cancel", text:"Cancel" });
       cancel.addEventListener("click", closeQuickAdd);
 
-      const form = qaEl("form", { className:"qa-sheet", id:"qaSheet" }, [
+      const form = qaEl("form", { className:"qa-sheet", id:"qaSheet", noValidate:true }, [
         qaEl("div", { className:"qa-grip" }),
         qaEl("div", { className:"qa-title", text:"Add an expense" }),
         qaEl("label", { className:"qa-label", text:"Amount ($)" }), amount,
@@ -3821,8 +3821,11 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text);background:var
       ]);
       form.addEventListener("submit", async (e)=>{
         e.preventDefault();
-        const amt = Math.round((parseFloat(amount.value) || 0) * 100) / 100;
-        if(!amt){ err.textContent = "Enter an amount."; amount.focus(); return; }
+        // "45.50", "$45.50", "1,234.50" and "45,50" (comma keyboards) all work
+        let raw = amount.value.replace(/[$\s]/g, "");
+        if(/^\d+,\d{1,2}$/.test(raw)) raw = raw.replace(",", "."); else raw = raw.replace(/,/g, "");
+        const amt = /^\d*\.?\d+$/.test(raw) ? Math.round(parseFloat(raw) * 100) / 100 : 0;
+        if(!(amt > 0)){ err.textContent = "Enter an amount, like 45.50"; amount.focus(); return; }
         if(!chosen.size){ err.textContent = "Pick at least one person to split with."; return; }
         const included = {};
         list.forEach(n=>{ included[n] = chosen.has(n); });

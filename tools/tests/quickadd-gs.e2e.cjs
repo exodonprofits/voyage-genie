@@ -63,6 +63,9 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
   ok(await o.inputValue('#qaPaidBy') === 'Jimmy', 'who paid defaults to you (Jimmy)');
   ok(await o.locator('#qaSplit .qa-chip.on').count() === 4, 'everyone is in the split by default');
   ok(await o.getAttribute('#qaAmount', 'inputmode') === 'decimal', 'amount opens the number keypad');
+  await o.fill('#qaAmount', 'abc'); await o.click('#qaSave');
+  ok(/Enter an amount/.test(await o.textContent('#qaErr')) && await o.evaluate(() => expenses.length) === 0, 'junk amount: asks again, nothing added');
+  await o.fill('#qaAmount', '');
   // validation
   await o.click('#qaSave');
   ok(/Enter an amount/.test(await o.textContent('#qaErr')), 'no amount: asks for one, nothing added');
@@ -102,14 +105,14 @@ const ok = (c, label) => { assert.ok(c, label); passed++; console.log('ok   ' + 
   ok(await j.locator('#qaFab').isVisible(), 'member sees "+ Expense"');
   await j.click('#qaFab'); await j.waitForSelector('#qaSheet');
   ok(await j.inputValue('#qaPaidBy') === 'Jenny', '...and "who paid" defaults to Jenny');
-  await j.fill('#qaAmount', '45.5'); await j.fill('#qaDesc', 'Groceries');
+  await j.fill('#qaAmount', '45,5'); await j.fill('#qaDesc', 'Groceries');   // "45,5": comma keyboards
   await j.selectOption('#qaCat', '🛒 Shopping');
   await j.click('#qaSave');
   await j.waitForFunction(() => !document.getElementById('qaOverlay'), null, { timeout: 5000 });
   await status(j, 'Saved');
   d = await db(j);
   const gro = d.vg_trip_expenses.find((e) => e.description === 'Groceries');
-  ok(gro && gro.created_by === JENNY && Number(gro.amount) === 45.5 && d.vg_trip_expenses.length === 2, 'Jenny\'s quick add is saved as hers ($45.50)');
+  ok(gro && gro.created_by === JENNY && Number(gro.amount) === 45.5 && d.vg_trip_expenses.length === 2, 'Jenny\'s quick add is saved as hers ("45,5" read as $45.50)');
   if (shots) await j.screenshot({ path: path.join(shots, 'quickadd-member.png') });
   await j.close();
 
